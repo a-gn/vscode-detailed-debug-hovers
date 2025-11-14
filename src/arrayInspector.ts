@@ -5,6 +5,12 @@
 import * as vscode from 'vscode';
 import { ArrayInfo, PinnedArray } from './types';
 
+export enum DisplayMode {
+    OneLine = 'oneLine',
+    TwoLine = 'twoLine',
+    Expanded = 'expanded'
+}
+
 export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfoItem> {
     private _onDidChangeTreeData = new vscode.EventEmitter<ArrayInfoItem | undefined | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
@@ -15,6 +21,7 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
     private supportedTypes: Set<string>;
     private attributes: string[];
     private lastFrameId: number | undefined;
+    private displayMode: DisplayMode = DisplayMode.OneLine;
 
     constructor(private outputChannel: vscode.OutputChannel) {
         const config = vscode.workspace.getConfiguration('arrayInspector');
@@ -33,13 +40,15 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         });
 
         // Listen to debug session changes
-        vscode.debug.onDidChangeActiveDebugSession(() => {
+        vscode.debug.onDidChangeActiveDebugSession((session) => {
+            this.outputChannel.appendLine(`Debug session changed: ${session?.name || 'none'}`);
             this.lastFrameId = undefined;
             this.scopeArrays.clear();
             this.updateAllArrays();
         });
 
         vscode.debug.onDidTerminateDebugSession(() => {
+            this.outputChannel.appendLine('Debug session terminated');
             this.currentHoveredArray = null;
             this.scopeArrays.clear();
             this.lastFrameId = undefined;
@@ -48,7 +57,7 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
 
         // Listen to active stack frame changes
         vscode.debug.onDidChangeActiveStackItem(() => {
-            this.outputChannel.appendLine('Stack frame changed, updating arrays');
+            this.outputChannel.appendLine('Stack item changed');
             this.updateAllArrays();
         });
     }
@@ -63,6 +72,27 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         this._onDidChangeTreeData.fire();
     }
 
+    toggleDisplayMode(): void {
+        // Cycle through modes: OneLine -> TwoLine -> Expanded -> OneLine
+        switch (this.displayMode) {
+            case DisplayMode.OneLine:
+                this.displayMode = DisplayMode.TwoLine;
+                break;
+            case DisplayMode.TwoLine:
+                this.displayMode = DisplayMode.Expanded;
+                break;
+            case DisplayMode.Expanded:
+                this.displayMode = DisplayMode.OneLine;
+                break;
+        }
+        this.outputChannel.appendLine(`Display mode changed to: ${this.displayMode}`);
+        this.refresh();
+    }
+
+    getDisplayMode(): DisplayMode {
+        return this.displayMode;
+    }
+
     getTreeItem(element: ArrayInfoItem): vscode.TreeItem {
         return element;
     }
@@ -73,57 +103,57 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         }
 
         if (element) {
+            // Highlighted items have children based on display mode
+            if (element.isHighlighted) {
+                return this.getArrayChildrenForMode(element.arrayInfo, true);
+            }
             // If it's a section header, return its children
             if (element.isSection) {
                 return this.getSectionChildren(element.sectionType!);
             }
             // Otherwise return attribute children for an array
-            return this.getArrayAttributes(element.arrayInfo);
+            return this.getArrayChildrenForMode(element.arrayInfo, false);
         }
 
-        // Root level: show sections
-        const sections: ArrayInfoItem[] = [];
+        // Root level: show items
+        const items: ArrayInfoItem[] = [];
 
-        // Section 1: Current (selected array)
+        // Item 1: Highlighted (currently selected array)
         if (this.currentHoveredArray) {
-            sections.push(ArrayInfoItem.createSection('current', 'Current'));
+            items.push(ArrayInfoItem.createHighlighted(this.currentHoveredArray, this.displayMode));
         }
 
         // Section 2: Pinned
         if (this.pinnedArrays.size > 0) {
-            sections.push(ArrayInfoItem.createSection('pinned', 'Pinned'));
+            items.push(ArrayInfoItem.createSection('pinned', 'Pinned'));
         }
 
         // Section 3: In Scope - scan for all arrays in current frame
         await this.scanScopeForArrays();
         if (this.scopeArrays.size > 0) {
-            sections.push(ArrayInfoItem.createSection('scope', 'In Scope'));
+            items.push(ArrayInfoItem.createSection('scope', 'In Scope'));
         }
 
-        return sections;
+        return items;
     }
 
     private async getSectionChildren(sectionType: string): Promise<ArrayInfoItem[]> {
         const items: ArrayInfoItem[] = [];
 
-        if (sectionType === 'current' && this.currentHoveredArray) {
-            items.push(new ArrayInfoItem(this.currentHoveredArray, vscode.TreeItemCollapsibleState.Expanded));
-        } else if (sectionType === 'pinned') {
+        if (sectionType === 'pinned') {
             for (const [name, pinned] of this.pinnedArrays) {
                 const info = await this.evaluateArray(pinned.expression, name, true);
                 if (info.isAvailable) {
-                    items.push(new ArrayInfoItem(info, vscode.TreeItemCollapsibleState.Expanded));
+                    const collapsibleState = this.getCollapsibleStateForMode();
+                    items.push(new ArrayInfoItem(info, collapsibleState, this.displayMode));
                 }
             }
         } else if (sectionType === 'scope') {
-            // Show arrays from scope that aren't current or pinned
-            for (const [name, info] of this.scopeArrays) {
-                const isCurrentOrPinned =
-                    (this.currentHoveredArray && this.currentHoveredArray.name === name) ||
-                    this.pinnedArrays.has(name);
-
-                if (!isCurrentOrPinned && info.isAvailable) {
-                    items.push(new ArrayInfoItem(info, vscode.TreeItemCollapsibleState.Collapsed));
+            // Show all arrays in scope, including pinned (don't filter)
+            for (const [, info] of this.scopeArrays) {
+                if (info.isAvailable) {
+                    const collapsibleState = this.getCollapsibleStateForMode();
+                    items.push(new ArrayInfoItem(info, collapsibleState, this.displayMode));
                 }
             }
         }
@@ -131,14 +161,75 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         return items;
     }
 
+    private getCollapsibleStateForMode(): vscode.TreeItemCollapsibleState {
+        // In OneLine mode, no children (all info on one line)
+        // In TwoLine mode, show one child with compact info
+        // In Expanded mode, show children (one per attribute)
+        switch (this.displayMode) {
+            case DisplayMode.OneLine:
+                return vscode.TreeItemCollapsibleState.None;
+            case DisplayMode.TwoLine:
+                return vscode.TreeItemCollapsibleState.Collapsed;
+            case DisplayMode.Expanded:
+                return vscode.TreeItemCollapsibleState.Collapsed;
+        }
+    }
+
+    private getArrayChildrenForMode(info: ArrayInfo, _isHighlighted: boolean): ArrayInfoItem[] {
+        if (!info.isAvailable) {
+            const dummyInfo: ArrayInfo = { ...info, name: 'N/A', type: '', shape: null, dtype: null, device: null, isPinned: false, isAvailable: false };
+            return [new ArrayInfoItem(
+                dummyInfo,
+                vscode.TreeItemCollapsibleState.None,
+                this.displayMode,
+                true,
+                false,
+                undefined,
+                false
+            )];
+        }
+
+        // In OneLine mode, no children
+        if (this.displayMode === DisplayMode.OneLine) {
+            return [];
+        }
+
+        // In TwoLine mode, show a single compact info line
+        if (this.displayMode === DisplayMode.TwoLine) {
+            const parts: string[] = [];
+            if (this.attributes.includes('shape') && info.shape !== null) {
+                parts.push(info.shape);
+            }
+            if (this.attributes.includes('dtype') && info.dtype !== null) {
+                parts.push(this.formatDtype(info.dtype));
+            }
+            if (this.attributes.includes('device') && info.device !== null) {
+                parts.push(info.device);
+            }
+
+            if (parts.length > 0) {
+                return [this.createAttributeItem('', parts.join(' '))];
+            }
+            return [];
+        }
+
+        // In Expanded mode, show one line per attribute
+        return this.getArrayAttributes(info);
+    }
+
     private getArrayAttributes(info: ArrayInfo): ArrayInfoItem[] {
         const items: ArrayInfoItem[] = [];
 
         if (!info.isAvailable) {
+            const dummyInfo: ArrayInfo = { ...info, name: 'N/A', type: '', shape: null, dtype: null, device: null, isPinned: false, isAvailable: false };
             items.push(new ArrayInfoItem(
-                { ...info, name: 'N/A', type: '', shape: null, dtype: null, device: null, isPinned: false, isAvailable: false },
+                dummyInfo,
                 vscode.TreeItemCollapsibleState.None,
-                true
+                this.displayMode,
+                true,
+                false,
+                undefined,
+                false
             ));
             return items;
         }
@@ -147,7 +238,9 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             items.push(this.createAttributeItem('shape', info.shape));
         }
         if (this.attributes.includes('dtype') && info.dtype !== null) {
-            items.push(this.createAttributeItem('dtype', info.dtype));
+            // Format dtype nicely - remove wrapper like dtype('int32')
+            const formattedDtype = this.formatDtype(info.dtype);
+            items.push(this.createAttributeItem('dtype', formattedDtype));
         }
         if (this.attributes.includes('device') && info.device !== null) {
             items.push(this.createAttributeItem('device', info.device));
@@ -156,9 +249,34 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         return items;
     }
 
+    private formatDtype(dtype: string): string {
+        // Remove dtype() wrapper for numpy: dtype('int32') -> int32
+        if (dtype.startsWith('dtype(') && dtype.endsWith(')')) {
+            return dtype.slice(6, -1).replace(/['"]/g, '');
+        }
+
+        // For JAX, dtypes are like dtype('float32') - extract the type name
+        const match = dtype.match(/dtype\(['"]?([^'"]+)['"]?\)/);
+        if (match) {
+            return match[1];
+        }
+
+        // For torch, dtypes are like torch.float32 - keep as is
+        // Or they might be like dtype=torch.float32, extract after =
+        if (dtype.includes('torch.')) {
+            const torchMatch = dtype.match(/torch\.(\w+)/);
+            if (torchMatch) {
+                return torchMatch[1];
+            }
+        }
+
+        // Return as-is if no pattern matched
+        return dtype;
+    }
+
     private createAttributeItem(name: string, value: string): ArrayInfoItem {
         const dummyInfo: ArrayInfo = {
-            name: `${name}: ${value}`,
+            name: name ? `${name}: ${value}` : value,
             type: '',
             shape: null,
             dtype: null,
@@ -166,7 +284,7 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             isPinned: false,
             isAvailable: true
         };
-        return new ArrayInfoItem(dummyInfo, vscode.TreeItemCollapsibleState.None, true);
+        return new ArrayInfoItem(dummyInfo, vscode.TreeItemCollapsibleState.None, this.displayMode, true, false, undefined, false);
     }
 
     async handleHover(expression: string): Promise<void> {
@@ -194,6 +312,14 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             this.refresh();
         } else {
             this.outputChannel.appendLine(`Type "${info.type}" is not supported or array not available`);
+        }
+    }
+
+    clearHighlighted(): void {
+        if (this.currentHoveredArray !== null) {
+            this.outputChannel.appendLine('Clearing highlighted array');
+            this.currentHoveredArray = null;
+            this.refresh();
         }
     }
 
@@ -471,18 +597,22 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
 export class ArrayInfoItem extends vscode.TreeItem {
     public readonly isSection: boolean;
     public readonly sectionType?: string;
+    public readonly isHighlighted: boolean;
 
     constructor(
         public readonly arrayInfo: ArrayInfo,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
+        public readonly displayMode: DisplayMode = DisplayMode.OneLine,
         isAttribute: boolean = false,
         isSection: boolean = false,
-        sectionType?: string
+        sectionType?: string,
+        isHighlighted: boolean = false
     ) {
         super(arrayInfo.name, collapsibleState);
 
         this.isSection = isSection;
         this.sectionType = sectionType;
+        this.isHighlighted = isHighlighted;
 
         if (isSection) {
             // Section header
@@ -491,6 +621,11 @@ export class ArrayInfoItem extends vscode.TreeItem {
         } else if (isAttribute) {
             this.contextValue = 'attribute';
             this.iconPath = new vscode.ThemeIcon('symbol-field');
+        } else if (isHighlighted) {
+            // Highlighted item
+            this.contextValue = 'highlighted';
+            this.iconPath = new vscode.ThemeIcon('symbol-array');
+            this.formatHighlightedItem(arrayInfo, displayMode);
         } else {
             this.contextValue = arrayInfo.isPinned ? 'pinned' : 'unpinned';
             this.iconPath = new vscode.ThemeIcon('symbol-array');
@@ -499,10 +634,61 @@ export class ArrayInfoItem extends vscode.TreeItem {
                 this.description = 'N/A';
                 this.tooltip = `${arrayInfo.name} is not available in the current frame`;
             } else {
-                this.description = arrayInfo.type;
-                this.tooltip = this.buildTooltip(arrayInfo);
+                this.formatRegularItem(arrayInfo, displayMode);
             }
         }
+    }
+
+    private formatHighlightedItem(arrayInfo: ArrayInfo, displayMode: DisplayMode): void {
+        // Format based on display mode
+        switch (displayMode) {
+            case DisplayMode.OneLine:
+                this.formatOneLineCompact(arrayInfo);
+                break;
+            case DisplayMode.TwoLine:
+                this.label = arrayInfo.name;
+                this.description = '';
+                break;
+            case DisplayMode.Expanded:
+                this.label = arrayInfo.name;
+                this.description = '';
+                break;
+        }
+        this.tooltip = this.buildTooltip(arrayInfo);
+    }
+
+    private formatRegularItem(arrayInfo: ArrayInfo, displayMode: DisplayMode): void {
+        // Format based on display mode
+        switch (displayMode) {
+            case DisplayMode.OneLine:
+                this.formatOneLineCompact(arrayInfo);
+                break;
+            case DisplayMode.TwoLine:
+                this.label = arrayInfo.name;
+                this.description = '';
+                break;
+            case DisplayMode.Expanded:
+                this.label = arrayInfo.name;
+                this.description = '';
+                break;
+        }
+        this.tooltip = this.buildTooltip(arrayInfo);
+    }
+
+    private formatOneLineCompact(arrayInfo: ArrayInfo): void {
+        // Compact format: name shape dtype device (no labels)
+        this.label = arrayInfo.name;
+        const parts: string[] = [];
+        if (arrayInfo.shape !== null) {
+            parts.push(arrayInfo.shape);
+        }
+        if (arrayInfo.dtype !== null) {
+            parts.push(arrayInfo.dtype);
+        }
+        if (arrayInfo.device !== null) {
+            parts.push(arrayInfo.device);
+        }
+        this.description = parts.join(' ');
     }
 
     static createSection(sectionType: string, label: string): ArrayInfoItem {
@@ -518,9 +704,28 @@ export class ArrayInfoItem extends vscode.TreeItem {
         return new ArrayInfoItem(
             dummyInfo,
             vscode.TreeItemCollapsibleState.Expanded,
+            DisplayMode.OneLine,
             false,
             true,
             sectionType
+        );
+    }
+
+    static createHighlighted(arrayInfo: ArrayInfo, displayMode: DisplayMode): ArrayInfoItem {
+        // Determine collapsible state based on display mode
+        let collapsibleState = vscode.TreeItemCollapsibleState.None;
+        if (displayMode === DisplayMode.TwoLine || displayMode === DisplayMode.Expanded) {
+            collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+        }
+
+        return new ArrayInfoItem(
+            arrayInfo,
+            collapsibleState,
+            displayMode,
+            false,
+            false,
+            undefined,
+            true
         );
     }
 

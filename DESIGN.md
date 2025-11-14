@@ -4,9 +4,9 @@
 
 **Purpose**: A VSCode extension that shows detailed array information (shape, dtype, device) in a sidebar panel during Python debugging sessions. Users can hover/click on array variables to see their properties, and pin arrays to keep them visible across stack frames.
 
-**Target Arrays**: JAX arrays (`jax.Array`, `jaxlib.xla_extension.ArrayImpl`) and NumPy arrays (`numpy.ndarray`)
+**Target Arrays**: JAX arrays (`jax.Array`, `jaxlib.xla_extension.ArrayImpl`), NumPy arrays (`numpy.ndarray`), and PyTorch tensors (`torch.Tensor`)
 
-**Current Status**: Fully functional with automatic scope scanning. The panel shows three sections: Current (selected array), Pinned (user-pinned arrays), and In Scope (all arrays in the current stack frame). Arrays automatically update when changing stack frames or when variables go out of scope.
+**Current Status**: Fully functional with automatic scope scanning and configurable display modes. The panel shows a highlighted array (currently selected), pinned arrays (user-pinned), and all arrays in scope. Arrays automatically update when changing stack frames or when variables go out of scope. Dtypes are formatted cleanly without wrapper syntax. Users can toggle between three display modes: compact one-line, two-line, or expanded (one property per line).
 
 ## Architecture
 
@@ -25,14 +25,16 @@ For each scope in frame:
     ↓
 User clicks on array variable → handleHover() called
     ↓
-Set as currentHoveredArray
+Set as currentHoveredArray (highlighted)
     ↓
-Panel displays 3 sections:
-   1. Current: Currently selected array
-   2. Pinned: User-pinned arrays (persist across frames)
-   3. In Scope: All other arrays in current frame
+Panel displays (format depends on display mode):
+   1. Highlighted: Currently selected array (format varies by mode)
+   2. Pinned: Section with user-pinned arrays (persist across frames)
+   3. In Scope: Section with all arrays in current frame (no filtering)
     ↓
-Stack frame changes → Clear scope, rescan
+User moves cursor away → Highlighted array is cleared
+    ↓
+Stack frame changes → Clear scope, rescan, highlighted remains if still in scope
     ↓
 Arrays out of scope → Removed from panel automatically
 ```
@@ -51,7 +53,7 @@ Arrays out of scope → Removed from panel automatically
 **Key Functions**:
 - `activate()`: Sets up extension, creates output channel for logging
 - `handleSelectionChange()`: Fires when user clicks/moves cursor
-- `detectHoveredVariable()`: Extracts word at cursor position
+- `detectHoveredVariable()`: Extracts word at cursor position, clears highlighted when moving away
 
 **Important Detail**: Uses `onDidChangeTextEditorSelection`, NOT true hover events. User must **click** or use **arrow keys** to move cursor onto variable.
 
@@ -64,28 +66,36 @@ Arrays out of scope → Removed from panel automatically
 - Display results in tree view
 
 **Key Functions**:
-- `handleHover(expression)`: Entry point from extension.ts - sets current array
-- `getChildren(element)`: Returns tree structure - sections at root, arrays in sections
-- `getSectionChildren(sectionType)`: Returns arrays for each section (current/pinned/scope)
-- `scanScopeForArrays()`: **NEW** - Automatically scans current frame for all array variables
+- `handleHover(expression)`: Entry point from extension.ts - sets highlighted array
+- `clearHighlighted()`: Clears the highlighted array when cursor moves away
+- `toggleDisplayMode()`: Cycles through display modes (OneLine → TwoLine → Expanded)
+- `getDisplayMode()`: Returns current display mode
+- `getChildren(element)`: Returns tree structure - highlighted item + sections at root
+- `getSectionChildren(sectionType)`: Returns arrays for each section (pinned/scope)
+- `getCollapsibleStateForMode()`: Determines if items should be collapsible based on display mode
+- `getArrayChildrenForMode(info, isHighlighted)`: Returns child items based on display mode
+- `scanScopeForArrays()`: Automatically scans current frame for all array variables
 - `getCurrentFrameId()`: Gets current stack frame ID
 - `evaluateArray(expression, name, isPinned)`: Main evaluation logic - gets frameId from current stack frame
 - `evaluateAttribute(expression, attribute, frameId)`: Evaluate individual attributes like `.shape`
+- `formatDtype(dtype)`: Format dtype cleanly (removes `dtype('int32')` wrapper, extracts torch dtype names)
 - `isSupportedType(type)`: Check if type matches configuration
 
 **Data Structures**:
-- `currentHoveredArray`: Currently selected array (shown in "Current" section)
+- `currentHoveredArray`: Currently selected/highlighted array (format varies by mode)
 - `pinnedArrays`: Map of pinned arrays (shown in "Pinned" section)
-- `scopeArrays`: **NEW** - Map of all arrays in current scope (shown in "In Scope" section)
-- `lastFrameId`: **NEW** - Track frame changes to detect when scope needs refreshing
+- `scopeArrays`: Map of all arrays in current scope (shown in "In Scope" section, no filtering)
+- `lastFrameId`: Track frame changes to detect when scope needs refreshing
+- `displayMode`: Current display mode (OneLine, TwoLine, or Expanded)
 
 **Critical Dependencies**:
 - `vscode.debug.activeDebugSession`: Must be non-null
-- `vscode.debug.onDidChangeActiveStackItem`: **NEW** - Listen to stack frame changes
+- `vscode.debug.onDidChangeActiveStackItem`: Listen to stack frame changes for auto-refresh
+- `vscode.debug.onDidChangeActiveDebugSession`: Listen to debug session changes
 - `session.customRequest('threads', {})`: Gets active threads
 - `session.customRequest('stackTrace', {...})`: Gets current stack frame
-- `session.customRequest('scopes', {frameId})`: **NEW** - Gets all scopes in frame
-- `session.customRequest('variables', {variablesReference})`: **NEW** - Gets all variables in scope
+- `session.customRequest('scopes', {frameId})`: Gets all scopes in frame
+- `session.customRequest('variables', {variablesReference})`: Gets all variables in scope
 - `session.customRequest('evaluate', {...})`: DAP protocol call with frameId
 
 #### 3. `src/types.ts` - TypeScript Interfaces
@@ -234,6 +244,49 @@ await session.customRequest('evaluate', {
 });
 ```
 
+## Display Modes
+
+The extension supports three display modes that affect how array information is presented:
+
+### 1. OneLine Mode (Compact)
+- **Format**: `name shape dtype device`
+- **Example**: `arr1 (10, 10) float64 cpu`
+- **Behavior**: All information on a single line, no labels, not expandable
+- **Use case**: Maximum information density, quick scanning
+
+### 2. TwoLine Mode
+- **Format**:
+  - Line 1: `name`
+  - Line 2 (child): `shape dtype device`
+- **Example**:
+  - `arr1` ▼
+    - `(10, 10) float64 cpu`
+- **Behavior**: Collapsible with compact info on second line
+- **Use case**: Balance between compactness and readability
+
+### 3. Expanded Mode (One Property Per Line)
+- **Format**:
+  - Line 1: `name`
+  - Children: `shape: value`, `dtype: value`, `device: value`
+- **Example**:
+  - `arr1` ▼
+    - `shape: (10, 10)`
+    - `dtype: float64`
+    - `device: cpu`
+- **Behavior**: Collapsible with one property per line
+- **Use case**: Maximum clarity, easy property identification
+
+### Toggling Display Mode
+
+**Button**: Click the layout icon (☷) in the Array Inspector panel toolbar
+**Command**: Use `arrayInspector.toggleDisplayMode` from the command palette
+**Behavior**: Cycles through OneLine → TwoLine → Expanded → OneLine
+
+The display mode is global and applies to:
+- Highlighted arrays (currently selected)
+- Pinned arrays
+- Arrays in scope
+
 ## Configuration
 
 Located in `package.json` under `contributes.configuration`:
@@ -242,7 +295,8 @@ Located in `package.json` under `contributes.configuration`:
 "arrayInspector.supportedTypes": [
     "jax.Array",
     "jaxlib.xla_extension.ArrayImpl",
-    "numpy.ndarray"
+    "numpy.ndarray",
+    "torch.Tensor"
 ]
 
 "arrayInspector.attributes": [
@@ -263,10 +317,13 @@ Located in `package.json` under `contributes.configuration`:
 6. When paused, **click** on the word `arr1`
 
 ### Expected Behavior
-- Array Inspector panel should update
-- Show "arr1 (numpy.ndarray)" as expandable item
-- Expand to show shape, dtype
-- Device might be null (NumPy doesn't have device concept)
+- Array Inspector panel should update immediately
+- Show highlighted array with format based on current display mode
+- "Pinned" section shows any pinned arrays (collapsibility depends on display mode)
+- "In Scope" section shows all arrays in the current frame (collapsibility depends on display mode)
+- Moving cursor away from arr1 clears the highlighted item
+- Dtypes shown cleanly (e.g., "int32" not "dtype('int32')")
+- Toggle button cycles through display modes
 
 ### Minimal Reproduction
 ```python
@@ -305,29 +362,33 @@ print(arr.shape)           # Click on 'arr' when paused
 
 ### What to Expect
 
-The panel shows **three expandable sections**:
+The panel shows:
 
-1. **Current** (if an array is selected):
-   - The most recently clicked array
-   - Automatically expanded to show attributes
+1. **Highlighted** (if an array is selected):
+   - Format depends on current display mode
+   - **OneLine**: `name shape dtype device` (compact, not expandable)
+   - **TwoLine**: `name` with collapsible child showing compact properties
+   - **Expanded**: `name` with collapsible children showing one property per line
    - Updates when you click on different array variables
+   - **Clears automatically** when cursor moves away from the variable
 
-2. **Pinned**:
+2. **Pinned** (section):
    - Arrays you've manually pinned (click pin icon)
    - Persist across stack frame changes
    - Re-evaluated each time frame changes
    - Shown as "N/A" if no longer in scope
-   - Automatically expanded
+   - Collapsibility depends on display mode
 
-3. **In Scope**:
+3. **In Scope** (section):
    - **All arrays** found in the current stack frame (automatic scanning!)
-   - Excludes arrays already shown in Current or Pinned
-   - Initially collapsed (click to expand)
+   - **No filtering** - shows all arrays including pinned ones
+   - Collapsibility depends on display mode
    - Automatically cleared and rescanned when stack frame changes
 
 **Behavior**:
-- Arrays will appear with their type (e.g., "arr1 (numpy.ndarray)")
-- Click to expand and see attributes: shape, dtype, device
+- Arrays shown with their type in tooltips
+- Dtypes formatted cleanly (e.g., "float32" not "dtype('float32')")
+- Display format controlled by global toggle button (layout icon)
 - Arrays disappear automatically when they go out of scope (frame change, variable deleted)
 - Stack frame changes trigger automatic rescan of all arrays
 

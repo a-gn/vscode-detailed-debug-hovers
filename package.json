@@ -47,10 +47,20 @@
         "command": "arrayInspector.refresh",
         "title": "Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "arrayInspector.toggleDisplayMode",
+        "title": "Toggle Display Mode",
+        "icon": "$(layout)"
       }
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "arrayInspector.toggleDisplayMode",
+          "when": "view == arrayInspectorView",
+          "group": "navigation"
+        },
         {
           "command": "arrayInspector.refresh",
           "when": "view == arrayInspectorView",
@@ -78,7 +88,8 @@
           "default": [
             "jax.Array",
             "jaxlib.xla_extension.ArrayImpl",
-            "numpy.ndarray"
+            "numpy.ndarray",
+            "torch.Tensor"
           ],
           "description": "Python types to show in the Array Inspector"
         },

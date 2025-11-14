@@ -8,6 +8,7 @@ import { ArrayInspectorProvider, ArrayInfoItem } from './arrayInspector';
 let arrayInspectorProvider: ArrayInspectorProvider;
 let hoverTimeout: NodeJS.Timeout | undefined;
 let outputChannel: vscode.OutputChannel;
+let lastHighlightedWord: string | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
     outputChannel = vscode.window.createOutputChannel('Array Inspector');
@@ -39,6 +40,12 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand('arrayInspector.refresh', () => {
             arrayInspectorProvider.refresh();
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('arrayInspector.toggleDisplayMode', () => {
+            arrayInspectorProvider.toggleDisplayMode();
         })
     );
 
@@ -92,6 +99,12 @@ function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Posit
 
     if (!wordRange) {
         outputChannel.appendLine('No word found at cursor position');
+        // Clear highlighted if we moved away from a variable
+        if (lastHighlightedWord !== undefined) {
+            outputChannel.appendLine('Clearing highlighted array (no word at cursor)');
+            arrayInspectorProvider.clearHighlighted();
+            lastHighlightedWord = undefined;
+        }
         return;
     }
 
@@ -109,10 +122,23 @@ function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Posit
 
     if (keywords.has(word)) {
         outputChannel.appendLine(`Ignoring keyword: "${word}"`);
+        // Clear highlighted if we moved from a variable to a keyword
+        if (lastHighlightedWord !== undefined) {
+            outputChannel.appendLine('Clearing highlighted array (moved to keyword)');
+            arrayInspectorProvider.clearHighlighted();
+            lastHighlightedWord = undefined;
+        }
         return;
     }
 
+    // If we moved to a different word, clear the old highlight
+    if (lastHighlightedWord !== undefined && lastHighlightedWord !== word) {
+        outputChannel.appendLine(`Clearing previous highlight: "${lastHighlightedWord}"`);
+        arrayInspectorProvider.clearHighlighted();
+    }
+
     outputChannel.appendLine(`Handling hover for: "${word}"`);
+    lastHighlightedWord = word;
     // Handle the hover
     arrayInspectorProvider.handleHover(word);
 }
