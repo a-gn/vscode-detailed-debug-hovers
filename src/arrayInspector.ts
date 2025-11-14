@@ -3,7 +3,7 @@
  */
 
 import * as vscode from 'vscode';
-import { ArrayInfo, PinnedArray, EvaluateResponse } from './types';
+import { ArrayInfo, PinnedArray } from './types';
 
 export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfoItem> {
     private _onDidChangeTreeData = new vscode.EventEmitter<ArrayInfoItem | undefined | void>();
@@ -172,21 +172,65 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         }
 
         try {
-            this.outputChannel.appendLine(`Sending evaluate request for: "${expression}"`);
+            // Get the current frame ID for proper context
+            let frameId: number | undefined;
+            try {
+                const threads = await session.customRequest('threads', {});
+                this.outputChannel.appendLine(`Threads response: ${JSON.stringify(threads)}`);
+
+                // Try both response formats: threads.body.threads and threads.threads
+                const threadList = threads.body?.threads || threads.threads;
+                if (threadList && threadList.length > 0) {
+                    const threadId = threadList[0].id;
+                    this.outputChannel.appendLine(`Using thread ID: ${threadId}`);
+
+                    const stackTrace = await session.customRequest('stackTrace', {
+                        threadId: threadId,
+                        startFrame: 0,
+                        levels: 1
+                    });
+                    this.outputChannel.appendLine(`StackTrace response: ${JSON.stringify(stackTrace)}`);
+
+                    // Try both response formats: stackTrace.body.stackFrames and stackTrace.stackFrames
+                    const frames = stackTrace.body?.stackFrames || stackTrace.stackFrames;
+                    if (frames && frames.length > 0) {
+                        frameId = frames[0].id;
+                        this.outputChannel.appendLine(`Using frame ID: ${frameId}`);
+                    } else {
+                        this.outputChannel.appendLine(`No stack frames found in response`);
+                    }
+                } else {
+                    this.outputChannel.appendLine(`No threads found in response`);
+                }
+            } catch (error) {
+                this.outputChannel.appendLine(`Warning: Could not get frameId: ${error}`);
+            }
+
+            this.outputChannel.appendLine(`Sending evaluate request for: "${expression}" with frameId: ${frameId}`);
             // First, evaluate the expression to get the type
-            const result = await session.customRequest('evaluate', {
+            const evaluateParams: any = {
                 expression,
                 context: 'hover'
-            }) as EvaluateResponse;
+            };
+            if (frameId !== undefined) {
+                evaluateParams.frameId = frameId;
+            }
 
-            this.outputChannel.appendLine(`Evaluate response: success=${result.success}, body=${JSON.stringify(result.body)}`);
+            const result = await session.customRequest('evaluate', evaluateParams);
 
-            if (!result.success || !result.body) {
-                this.outputChannel.appendLine(`Evaluation failed for "${expression}"`);
+            this.outputChannel.appendLine(`Evaluate response (raw): ${JSON.stringify(result)}`);
+
+            // DAP evaluate returns the body directly, not wrapped in {success, body}
+            const responseBody = result.body || result;
+
+            if (!responseBody || !responseBody.result) {
+                this.outputChannel.appendLine(`Evaluation failed for "${expression}" - no result in response`);
                 return this.createUnavailableInfo(name, isPinned);
             }
 
-            const type = result.body.type || '';
+            this.outputChannel.appendLine(`Evaluate response body: ${JSON.stringify(responseBody)}`);
+
+            const type = responseBody.type || '';
             this.outputChannel.appendLine(`Type for "${expression}": "${type}"`);
 
             if (!this.isSupportedType(type)) {
@@ -197,9 +241,9 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             // Evaluate attributes
             this.outputChannel.appendLine(`Evaluating attributes for "${expression}"`);
             const [shape, dtype, device] = await Promise.all([
-                this.evaluateAttribute(expression, 'shape'),
-                this.evaluateAttribute(expression, 'dtype'),
-                this.evaluateAttribute(expression, 'device')
+                this.evaluateAttribute(expression, 'shape', frameId),
+                this.evaluateAttribute(expression, 'dtype', frameId),
+                this.evaluateAttribute(expression, 'device', frameId)
             ]);
 
             this.outputChannel.appendLine(`Attributes - shape: ${shape}, dtype: ${dtype}, device: ${device}`);
@@ -219,7 +263,7 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         }
     }
 
-    private async evaluateAttribute(expression: string, attribute: string): Promise<string | null> {
+    private async evaluateAttribute(expression: string, attribute: string, frameId?: number): Promise<string | null> {
         const session = vscode.debug.activeDebugSession;
         if (!session) {
             return null;
@@ -227,13 +271,20 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
 
         try {
             const attrExpression = `${expression}.${attribute}`;
-            const result = await session.customRequest('evaluate', {
+            const evaluateParams: any = {
                 expression: attrExpression,
                 context: 'hover'
-            }) as EvaluateResponse;
+            };
+            if (frameId !== undefined) {
+                evaluateParams.frameId = frameId;
+            }
 
-            if (result.success && result.body) {
-                return result.body.result;
+            const result = await session.customRequest('evaluate', evaluateParams);
+
+            // DAP evaluate returns the body directly
+            const responseBody = result.body || result;
+            if (responseBody && responseBody.result) {
+                return responseBody.result;
             }
         } catch (error) {
             // Attribute not available
@@ -243,18 +294,25 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
     }
 
     private isSupportedType(type: string): boolean {
+        this.outputChannel.appendLine(`Checking if type "${type}" is supported`);
+
         // Check exact match first
         if (this.supportedTypes.has(type)) {
+            this.outputChannel.appendLine(`Exact match found for "${type}"`);
             return true;
         }
 
-        // Check if any supported type is a suffix (for cases like 'jaxlib.xla_extension.ArrayImpl')
+        // Check for partial matches in both directions:
+        // - Short type in config matches long type from debugger (e.g., "ArrayImpl" in "jaxlib.xla_extension.ArrayImpl")
+        // - Long type in config matches short type from debugger (e.g., "numpy.ndarray" matches "ndarray")
         for (const supportedType of this.supportedTypes) {
-            if (type.endsWith(supportedType) || type.includes(supportedType)) {
+            if (type.includes(supportedType) || supportedType.includes(type)) {
+                this.outputChannel.appendLine(`Partial match: "${type}" matched with configured type "${supportedType}"`);
                 return true;
             }
         }
 
+        this.outputChannel.appendLine(`No match found for "${type}". Configured types: ${Array.from(this.supportedTypes).join(', ')}`);
         return false;
     }
 

@@ -62,16 +62,15 @@ export function activate(context: vscode.ExtensionContext): void {
 function handleSelectionChange(event: vscode.TextEditorSelectionChangeEvent): void {
     // Only process during active debug sessions
     if (!vscode.debug.activeDebugSession) {
-        outputChannel.appendLine('Selection changed but no active debug session');
+        // Silently ignore - no need to log every selection change
         return;
     }
 
     const editor = event.textEditor;
     const selection = event.selections[0];
 
-    // Check if it's a Python file
+    // Check if it's a Python file (silently ignore other file types to avoid log spam)
     if (editor.document.languageId !== 'python') {
-        outputChannel.appendLine(`Selection changed in non-Python file: ${editor.document.languageId}`);
         return;
     }
 

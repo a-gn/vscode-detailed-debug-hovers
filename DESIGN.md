@@ -6,7 +6,7 @@
 
 **Target Arrays**: JAX arrays (`jax.Array`, `jaxlib.xla_extension.ArrayImpl`) and NumPy arrays (`numpy.ndarray`)
 
-**Current Status**: Extension activates and panel appears, but arrays don't show up when hovering over variables during debugging.
+**Current Status**: Extension is functional. Arrays now appear correctly when clicking on variables during debugging. Fixed by adding `frameId` parameter to DAP evaluate requests.
 
 ## Architecture
 
@@ -58,13 +58,15 @@ Update TreeView and display in sidebar panel
 
 **Key Functions**:
 - `handleHover(expression)`: Entry point from extension.ts
-- `evaluateArray(expression, name, isPinned)`: Main evaluation logic
-- `evaluateAttribute(expression, attribute)`: Evaluate individual attributes like `.shape`
+- `evaluateArray(expression, name, isPinned)`: Main evaluation logic - gets frameId from current stack frame
+- `evaluateAttribute(expression, attribute, frameId)`: Evaluate individual attributes like `.shape`
 - `isSupportedType(type)`: Check if type matches configuration
 
 **Critical Dependencies**:
 - `vscode.debug.activeDebugSession`: Must be non-null
-- `session.customRequest('evaluate', {...})`: DAP protocol call
+- `session.customRequest('threads', {})`: Gets active threads
+- `session.customRequest('stackTrace', {...})`: Gets current stack frame
+- `session.customRequest('evaluate', {...})`: DAP protocol call with frameId
 
 #### 3. `src/types.ts` - TypeScript Interfaces
 
@@ -75,10 +77,21 @@ Defines data structures for array information and debug responses.
 The extension relies on DAP to evaluate expressions:
 
 ```typescript
-// Request format
+// First, get the current frame context
+const threads = await session.customRequest('threads', {});
+const threadId = threads.body.threads[0].id;
+const stackTrace = await session.customRequest('stackTrace', {
+    threadId: threadId,
+    startFrame: 0,
+    levels: 1
+});
+const frameId = stackTrace.body.stackFrames[0].id;
+
+// Request format (with frameId for proper context)
 await session.customRequest('evaluate', {
     expression: 'arr1',        // Variable name
-    context: 'hover'           // Context hint
+    context: 'hover',          // Context hint
+    frameId: frameId           // CRITICAL: Stack frame context
 })
 
 // Expected response
@@ -92,16 +105,30 @@ await session.customRequest('evaluate', {
 }
 ```
 
-**Critical Requirement**: The debug adapter must support returning type information. Python's `debugpy` should support this with the `supportsVariableType` capability.
+**Critical Requirements**:
+- The debug adapter must support returning type information. Python's `debugpy` should support this with the `supportsVariableType` capability.
+- **The frameId parameter is essential** - without it, the debugger doesn't know which stack frame's scope to evaluate the expression in, causing evaluations to fail silently or return incorrect results.
 
-## Current Issue: Arrays Not Showing Up
+## Recent Fix: Added frameId to DAP Requests
 
-### Symptoms
-- Panel appears during debug session
-- No arrays shown when hovering over variables
-- Clicking on array variables produces no result
+**Problem**: Arrays were not appearing in the panel when clicked during debugging sessions.
 
-### Debugging Strategy
+**Root Cause**: The DAP `evaluate` requests were missing the `frameId` parameter. Without the frame context, the debug adapter didn't know which stack frame's scope to evaluate expressions in, causing silent failures or incorrect evaluations.
+
+**Solution**: Modified `evaluateArray()` and `evaluateAttribute()` in [src/arrayInspector.ts](src/arrayInspector.ts) to:
+1. Query the debug adapter for active threads using `customRequest('threads', {})`
+2. Get the current stack trace using `customRequest('stackTrace', {...})`
+3. Extract the frameId from the top stack frame
+4. Include frameId in all evaluate requests
+5. Added comprehensive logging to track the entire evaluation flow
+
+**Changes Made**:
+- [src/arrayInspector.ts:167-251](src/arrayInspector.ts#L167-L251): Updated `evaluateArray()` to get and use frameId
+- [src/arrayInspector.ts:253-279](src/arrayInspector.ts#L253-L279): Updated `evaluateAttribute()` to accept and use frameId parameter
+- [src/extension.ts:62-77](src/extension.ts#L62-L77): Fixed log spam by silently ignoring non-Python file selection changes
+- Added detailed logging at each step for easier debugging
+
+### Debugging Strategy (if issues persist)
 
 #### Step 1: Check Output Channel
 Open Output panel (Ctrl+Shift+U) → Select "Array Inspector" from dropdown.
@@ -243,78 +270,24 @@ print(arr.shape)           # Click on 'arr' when paused
 - **Evaluate Request**: https://microsoft.github.io/debug-adapter-protocol/specification#Requests_Evaluate
 - **debugpy GitHub**: https://github.com/microsoft/debugpy
 
-## Quick Fixes to Try
+## How to Use the Extension
 
-### Fix 1: Add frameId to evaluate request
+### Basic Usage
+1. **Start debugging** a Python script with arrays (F5)
+2. **Set a breakpoint AFTER the line where arrays are created** (e.g., if `arr1 = np.zeros(...)` is on line 17, set breakpoint on line 18)
+3. **Wait for debugger to pause** at the breakpoint
+4. **Click on an array variable name** in the code editor (e.g., click on `arr1` in the line above)
+5. **Check the Array Inspector panel** in the sidebar (should update within 100ms)
+6. **Expand the array item** to see shape, dtype, and device attributes
+7. **Pin arrays** to keep them visible when navigating to different stack frames
 
-Edit `src/arrayInspector.ts`, in `evaluateArray()`:
+**Important**: Variables must be **already defined** when the debugger pauses. If you set a breakpoint on the line where a variable is created, that variable won't exist yet!
 
-```typescript
-// Before the evaluate request, add:
-const threads = await session.customRequest('threads', {});
-if (threads.body && threads.body.threads.length > 0) {
-    const threadId = threads.body.threads[0].id;
-    const stackTrace = await session.customRequest('stackTrace', {
-        threadId: threadId,
-        startFrame: 0,
-        levels: 1
-    });
-
-    if (stackTrace.body && stackTrace.body.stackFrames.length > 0) {
-        const frameId = stackTrace.body.stackFrames[0].id;
-
-        // Now use frameId in evaluate:
-        const result = await session.customRequest('evaluate', {
-            expression,
-            frameId: frameId,  // Add this!
-            context: 'hover'
-        });
-    }
-}
-```
-
-### Fix 2: Broaden type matching
-
-Edit `src/arrayInspector.ts`, in `isSupportedType()`:
-
-```typescript
-private isSupportedType(type: string): boolean {
-    // Log for debugging
-    this.outputChannel.appendLine(`Checking if type "${type}" is supported`);
-    this.outputChannel.appendLine(`Supported types: ${Array.from(this.supportedTypes).join(', ')}`);
-
-    // Exact match
-    if (this.supportedTypes.has(type)) {
-        this.outputChannel.appendLine(`Exact match found`);
-        return true;
-    }
-
-    // Partial match (for "ndarray" matching "numpy.ndarray")
-    for (const supportedType of this.supportedTypes) {
-        if (type.includes(supportedType) || supportedType.includes(type)) {
-            this.outputChannel.appendLine(`Partial match with "${supportedType}"`);
-            return true;
-        }
-    }
-
-    this.outputChannel.appendLine(`No match found`);
-    return false;
-}
-```
-
-### Fix 3: Check debug adapter capabilities
-
-Add to `activate()` in `src/extension.ts`:
-
-```typescript
-vscode.debug.onDidStartDebugSession((session) => {
-    if (session.type === 'python' || session.type === 'debugpy') {
-        outputChannel.appendLine(`Debug session started: ${session.name}`);
-        outputChannel.appendLine(`Session type: ${session.type}`);
-        outputChannel.appendLine(`Configuration: ${JSON.stringify(session.configuration)}`);
-    }
-});
-```
+### What to Expect
+- Arrays will appear with their type (e.g., "arr1 (numpy.ndarray)")
+- Expandable to show attributes: shape, dtype, device
+- Pinned arrays persist across stack frame changes
+- Unpinned arrays update when you click on different variables
 
 ## Testing
 
