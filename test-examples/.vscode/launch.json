@@ -16,6 +16,14 @@
       "program": "${workspaceFolder}/jax_example.py",
       "console": "integratedTerminal",
       "justMyCode": true
+    },
+    {
+      "name": "Python: PyTorch Example",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/torch_example.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
     }
   ]
 }

@@ -157,6 +157,71 @@ suite('Attribute Evaluation Logic', () => {
     });
 });
 
+suite('Collapse State Detection Logic', () => {
+    test('Should initialize with empty collapsed states', () => {
+        const collapsedStates = new Map<string, boolean>();
+
+        assert.strictEqual(collapsedStates.size, 0);
+    });
+
+    test('Should track section collapse state', () => {
+        const collapsedStates = new Map<string, boolean>();
+
+        // Simulate collapsing a section
+        collapsedStates.set('highlighted', true);
+        collapsedStates.set('pinned', true);
+        collapsedStates.set('locals', false);
+
+        assert.strictEqual(collapsedStates.get('highlighted'), true);
+        assert.strictEqual(collapsedStates.get('pinned'), true);
+        assert.strictEqual(collapsedStates.get('locals'), false);
+    });
+
+    test('Should detect when all sections are collapsed', () => {
+        const collapsedStates = new Map<string, boolean>();
+        const sections = ['highlighted', 'pinned', 'locals', 'globals'];
+
+        // All collapsed
+        sections.forEach(s => collapsedStates.set(s, true));
+
+        const allCollapsed = sections.every(s => collapsedStates.get(s) === true);
+        assert.strictEqual(allCollapsed, true);
+    });
+
+    test('Should detect when not all sections are collapsed', () => {
+        const collapsedStates = new Map<string, boolean>();
+        const sections = ['highlighted', 'pinned', 'locals'];
+
+        // Some collapsed, some expanded
+        collapsedStates.set('highlighted', true);
+        collapsedStates.set('pinned', false);
+        collapsedStates.set('locals', true);
+
+        const allCollapsed = sections.every(s => collapsedStates.get(s) === true);
+        assert.strictEqual(allCollapsed, false);
+    });
+
+    test('Should treat missing state as not collapsed', () => {
+        const collapsedStates = new Map<string, boolean>();
+        const sections = ['highlighted', 'pinned'];
+
+        // Only set one section
+        collapsedStates.set('highlighted', true);
+
+        // Check if all are collapsed (missing state should be treated as not collapsed)
+        const allCollapsed = sections.every(s => collapsedStates.get(s) === true);
+        assert.strictEqual(allCollapsed, false);
+    });
+
+    test('Should handle empty section list', () => {
+        const collapsedStates = new Map<string, boolean>();
+        const sections: string[] = [];
+
+        const allCollapsed = sections.every(s => collapsedStates.get(s) === true);
+        assert.strictEqual(allCollapsed, true); // Vacuously true for empty array
+    });
+});
+
 // Run tests if this file is executed directly
 if (require.main === module) {
     console.log('Running unit tests...');

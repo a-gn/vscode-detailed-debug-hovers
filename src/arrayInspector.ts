@@ -24,6 +24,7 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
     private lastFrameId: number | undefined;
     private displayMode: DisplayMode = DisplayMode.OneLine;
     private treeView: vscode.TreeView<ArrayInfoItem> | undefined;
+    private sectionCollapsedStates: Map<string, boolean> = new Map();
 
     constructor(private outputChannel: vscode.OutputChannel) {
         const config = vscode.workspace.getConfiguration('arrayInspector');
@@ -68,6 +69,19 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
 
     setTreeView(treeView: vscode.TreeView<ArrayInfoItem>): void {
         this.treeView = treeView;
+
+        // Track expansion/collapse events
+        treeView.onDidExpandElement((event) => {
+            if (event.element.isSection && event.element.sectionType) {
+                this.sectionCollapsedStates.set(event.element.sectionType, false);
+            }
+        });
+
+        treeView.onDidCollapseElement((event) => {
+            if (event.element.isSection && event.element.sectionType) {
+                this.sectionCollapsedStates.set(event.element.sectionType, true);
+            }
+        });
     }
 
     private updateConfiguration(): void {
@@ -186,6 +200,48 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
 
     getDisplayMode(): DisplayMode {
         return this.displayMode;
+    }
+
+    private async areAllSectionsCollapsed(): Promise<boolean> {
+        const rootItems = await this.getChildren();
+        // Check if all visible sections are collapsed
+        for (const section of rootItems) {
+            if (section.isSection && section.sectionType) {
+                const isCollapsed = this.sectionCollapsedStates.get(section.sectionType);
+                // If any section is not explicitly marked as collapsed, it's expanded
+                if (isCollapsed !== true) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    async toggleCollapseExpandAll(): Promise<void> {
+        if (!this.treeView) {
+            return;
+        }
+
+        const allCollapsed = await this.areAllSectionsCollapsed();
+        const rootItems = await this.getChildren();
+
+        if (allCollapsed) {
+            // Expand all sections
+            this.outputChannel.appendLine('Expanding all sections');
+            for (const section of rootItems) {
+                if (section.isSection) {
+                    await this.treeView.reveal(section, { expand: true });
+                }
+            }
+        } else {
+            // Collapse all sections
+            this.outputChannel.appendLine('Collapsing all sections');
+            for (const section of rootItems) {
+                if (section.isSection) {
+                    await this.treeView.reveal(section, { expand: false });
+                }
+            }
+        }
     }
 
 

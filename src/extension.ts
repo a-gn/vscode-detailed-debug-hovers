@@ -18,8 +18,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // Create and register the tree view provider
     arrayInspectorProvider = new ArrayInspectorProvider(outputChannel);
     const treeView = vscode.window.createTreeView('arrayInspectorView', {
-        treeDataProvider: arrayInspectorProvider,
-        showCollapseAll: true
+        treeDataProvider: arrayInspectorProvider
     });
     arrayInspectorProvider.setTreeView(treeView);
 
@@ -59,6 +58,12 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand('arrayInspector.copyPytorchCreationOptions', async (item: ArrayInfoItem) => {
             await arrayInspectorProvider.copyPytorchCreationOptions(item);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('arrayInspector.toggleCollapseExpandAll', async () => {
+            await arrayInspectorProvider.toggleCollapseExpandAll();
         })
     );
 

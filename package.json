@@ -59,12 +59,22 @@
       {
         "command": "arrayInspector.copyPytorchCreationOptions",
         "title": "Copy PyTorch Creation Options"
+      },
+      {
+        "command": "arrayInspector.toggleCollapseExpandAll",
+        "title": "Toggle Collapse/Expand All",
+        "icon": "$(collapse-all)"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "arrayInspector.toggleDisplayMode",
+          "when": "view == arrayInspectorView",
+          "group": "navigation"
+        },
+        {
+          "command": "arrayInspector.toggleCollapseExpandAll",
           "when": "view == arrayInspectorView",
           "group": "navigation"
         }
