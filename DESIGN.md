@@ -418,13 +418,16 @@ The extension includes comprehensive unit tests that verify core functionality w
 ### Running Tests
 
 ```bash
-# Run all unit tests (48 tests - no VSCode needed)
+# Run all unit tests (172 tests - no VSCode needed)
 npm run compile && npx mocha 'out/test/*.test.js'
 
-# Or run just one test file
-npm run test:unit  # Just unit.test.js
-npx mocha out/test/dap.test.js  # Just DAP tests
-npx mocha out/test/edge-cases.test.js  # Just edge cases
+# Or run specific test files
+npx mocha out/test/unit.test.js  # Core logic tests
+npx mocha out/test/dap.test.js  # DAP communication tests
+npx mocha out/test/edge-cases.test.js  # Edge case tests
+npx mocha out/test/formatting.test.js  # Formatting function tests
+npx mocha out/test/display-mode.test.js  # Display mode logic tests
+npx mocha out/test/array-info-item.test.js  # ArrayInfoItem class tests
 
 # Run full integration tests (requires VSCode installation)
 npm test
@@ -432,13 +435,14 @@ npm test
 
 ### Test Coverage
 
-**All tests pass** ✓ **48 passing** (130ms)
+**All tests pass** ✓ **172 passing** (149ms)
 
 **1. Core Logic Tests** (`src/test/unit.test.ts` - 9 tests):
 - Variable name detection logic
 - Python keyword filtering
 - Type matching (exact and substring matching)
 - Attribute expression construction
+- Collapse state detection logic
 
 **2. DAP Communication Tests** (`src/test/dap.test.ts` - 12 tests):
 - customRequest parameter validation
@@ -467,7 +471,32 @@ npm test
 - Async/Promise error handling
 - Debugger pause/resume cycles
 
-**4. Integration Tests** (`src/test/suite/arrayInspector.test.ts`):
+**4. Formatting Function Tests** (`src/test/formatting.test.ts` - 64 tests):
+- Shape formatting (torch.Size to tuple conversion)
+- Dtype formatting for NumPy, PyTorch, and JAX
+- Custom prefix handling for dtypes
+- Device formatting (cpu, gpu_0, cuda conversions)
+- Dtype conversion to NumPy, JAX, and PyTorch formats
+- Device conversion to JAX and PyTorch formats
+- Edge cases for malformed inputs
+
+**5. Display Mode Logic Tests** (`src/test/display-mode.test.ts` - 29 tests):
+- Display mode cycling (OneLine → TwoLine → Expanded)
+- Collapsible state determination for each mode
+- Array children count for different modes
+- Section collapse state detection
+- OneLine and TwoLine compact formatting
+- Attribute filtering based on configuration
+
+**6. ArrayInfoItem Class Tests** (`src/test/array-info-item.test.ts` - 31 tests):
+- Tooltip building for different array types
+- Section item creation (highlighted, pinned, locals, globals)
+- Array availability detection
+- Context value determination
+- Attribute item creation
+- Parent section detection and prioritization
+
+**7. Integration Tests** (`src/test/suite/arrayInspector.test.ts`):
 Full VSCode environment required:
 - ArrayInspectorProvider initialization
 - Configuration handling
@@ -487,10 +516,13 @@ Run with: `npm test` (requires VSCode installation, not available in headless en
 ## File Locations
 
 - **Extension code**: `src/extension.ts`, `src/arrayInspector.ts`, `src/types.ts`
-- **Unit tests** (48 tests):
+- **Unit tests** (172 tests):
   - `src/test/unit.test.ts` - Core logic (9 tests)
   - `src/test/dap.test.ts` - DAP communication (12 tests)
-  - `src/test/edge-cases.test.ts` - Edge cases (27 tests)
+  - `src/test/edge-cases.test.ts` - Edge cases and error handling (27 tests)
+  - `src/test/formatting.test.ts` - Formatting functions (64 tests)
+  - `src/test/display-mode.test.ts` - Display mode logic (29 tests)
+  - `src/test/array-info-item.test.ts` - ArrayInfoItem class (31 tests)
 - **Integration tests**: `src/test/suite/arrayInspector.test.ts` (requires VSCode)
 - **Test infrastructure**: `src/test/runTest.ts`, `src/test/suite/index.ts`
 - **Configuration**: `package.json`, `.mocharc.json`, `tsconfig.json`
