@@ -15,7 +15,7 @@ import numpy as np
 def main():
     # Create various NumPy arrays
     arr1 = np.zeros((100, 50))  # Breakpoint here
-    arr2 = np.ones((10, 10, 10), dtype=np.int32)
+    arr2 = np.ones((1000, 1000, 300), dtype=np.int32)
     arr3 = np.random.randn(1000)
 
     # Do some operations
