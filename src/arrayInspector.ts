@@ -466,29 +466,107 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         return items;
     }
 
-    private formatDtype(dtype: string): string {
-        // Remove dtype() wrapper for numpy: dtype('int32') -> int32
-        if (dtype.startsWith('dtype(') && dtype.endsWith(')')) {
-            return dtype.slice(6, -1).replace(/['"]/g, '');
-        }
-
-        // For JAX, dtypes are like dtype('float32') - extract the type name
-        const match = dtype.match(/dtype\(['"]?([^'"]+)['"]?\)/);
-        if (match) {
-            return match[1];
-        }
-
-        // For torch, dtypes are like torch.float32 - keep as is
-        // Or they might be like dtype=torch.float32, extract after =
-        if (dtype.includes('torch.')) {
-            const torchMatch = dtype.match(/torch\.(\w+)/);
-            if (torchMatch) {
-                return torchMatch[1];
+    private formatShape(shape: string, type: string): string {
+        // Convert torch.Size([2, 2]) to (2, 2)
+        if (type.includes('torch.Tensor') || type.includes('Tensor')) {
+            const sizeMatch = shape.match(/torch\.Size\(\[([^\]]*)\]\)/);
+            if (sizeMatch) {
+                return `(${sizeMatch[1]})`;
             }
         }
 
         // Return as-is if no pattern matched
-        return dtype;
+        return shape;
+    }
+
+    private formatDtype(dtype: string, type: string): string {
+        const config = vscode.workspace.getConfiguration('arrayInspector');
+
+        // Determine the library and get the appropriate prefix
+        let prefix = '';
+        let dtypeName = dtype;
+
+        if (type.includes('torch.Tensor') || type.includes('Tensor')) {
+            // PyTorch dtype
+            const configPrefix = config.get<string>('pytorchPrefix', 'torch.');
+            prefix = configPrefix || 'torch.';
+
+            // Extract dtype name: torch.float32 -> float32
+            const torchMatch = dtype.match(/torch\.(\w+)/);
+            if (torchMatch) {
+                dtypeName = torchMatch[1];
+            }
+        } else if (type.includes('numpy.ndarray') || type.includes('ndarray')) {
+            // NumPy dtype
+            const configPrefix = config.get<string>('numpyPrefix', 'np.');
+            prefix = configPrefix || 'np.';
+
+            // Remove dtype() wrapper: dtype('int32') -> int32
+            if (dtype.startsWith('dtype(') && dtype.endsWith(')')) {
+                dtypeName = dtype.slice(6, -1).replace(/['"]/g, '');
+            } else {
+                const match = dtype.match(/dtype\(['"]?([^'"]+)['"]?\)/);
+                if (match) {
+                    dtypeName = match[1];
+                }
+            }
+        } else if (type.includes('jax.Array') || type.includes('ArrayImpl')) {
+            // JAX dtype
+            const configPrefix = config.get<string>('jaxNumpyPrefix', 'jnp.');
+            prefix = configPrefix || 'jnp.';
+
+            // JAX dtypes are like dtype('float32') - extract the type name
+            const match = dtype.match(/dtype\(['"]?([^'"]+)['"]?\)/);
+            if (match) {
+                dtypeName = match[1];
+            }
+        } else {
+            // Unknown type - try to extract dtype name
+            const match = dtype.match(/dtype\(['"]?([^'"]+)['"]?\)/);
+            if (match) {
+                dtypeName = match[1];
+            }
+        }
+
+        // Ensure prefix ends with '.' if it's not empty
+        if (prefix && !prefix.endsWith('.')) {
+            prefix += '.';
+        }
+
+        return `${prefix}${dtypeName}`;
+    }
+
+    private formatDevice(device: string, type: string): string {
+        // Format torch devices more concisely
+        if (type.includes('torch.Tensor') || type.includes('Tensor')) {
+            // device(type='cpu') -> cpu
+            // device(type='cuda', index=0) -> gpu_0
+            // device(type='cuda', index=1) -> gpu_1
+
+            const cpuMatch = device.match(/device\(type=['"]cpu['"]\)/);
+            if (cpuMatch) {
+                return 'cpu';
+            }
+
+            const cudaMatch = device.match(/device\(type=['"]cuda['"],?\s*(?:index=(\d+))?\)/);
+            if (cudaMatch) {
+                const index = cudaMatch[1] || '0';
+                return `gpu_${index}`;
+            }
+
+            // If it's just 'cpu' or 'cuda:0' format
+            if (device === 'cpu') {
+                return 'cpu';
+            }
+
+            const cudaSimpleMatch = device.match(/cuda:(\d+)/);
+            if (cudaSimpleMatch) {
+                return `gpu_${cudaSimpleMatch[1]}`;
+            }
+        }
+
+        // Return as-is for other types
+        return device;
     }
 
     private createAttributeItem(name: string, value: string, parentInfo?: ArrayInfo): ArrayInfoItem {
@@ -639,31 +717,52 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
     }
 
     private convertDtypeToNumpy(dtype: string): string {
-        // dtype is already formatted in our display (e.g., "int32", "float64")
-        // NumPy uses np.int32, np.float64, etc.
+        // dtype is now formatted with prefix (e.g., "np.int32", "torch.float64")
+        // Extract just the type name after the last dot
+        const lastDot = dtype.lastIndexOf('.');
+        if (lastDot !== -1) {
+            return dtype.substring(lastDot + 1);
+        }
         return dtype;
     }
 
     private convertDtypeToJax(dtype: string): string {
-        // JAX uses jnp.int32, jnp.float64, etc. - same as NumPy
+        // dtype is now formatted with prefix (e.g., "np.int32", "jnp.float64")
+        // Extract just the type name after the last dot
+        const lastDot = dtype.lastIndexOf('.');
+        if (lastDot !== -1) {
+            return dtype.substring(lastDot + 1);
+        }
         return dtype;
     }
 
     private convertDtypeToPytorch(dtype: string): string {
-        // PyTorch dtypes: torch.int32, torch.float64, etc.
-        // But PyTorch also has torch.int64 (not torch.long in dtype specification)
+        // dtype is now formatted with prefix (e.g., "torch.int32", "np.float64")
+        // Extract just the type name after the last dot
+        const lastDot = dtype.lastIndexOf('.');
+        if (lastDot !== -1) {
+            return dtype.substring(lastDot + 1);
+        }
         return dtype;
     }
 
     private convertDeviceToJax(device: string, prefix: string): string {
         // JAX device format: jax.devices('cpu')[0], jax.devices('gpu')[0], etc.
-        // The device string might be like "cpu:0" or "gpu:0"
+        // The device string is now formatted as "cpu" or "gpu_0"
         // Handle prefix: if it ends with '.', remove it; if empty, use it as-is
         const moduleRef = prefix.endsWith('.') && prefix !== '' ? prefix.slice(0, -1) : prefix;
         const separator = moduleRef === '' ? '' : '.';
 
-        if (device.toLowerCase().includes('cpu')) {
+        if (device === 'cpu') {
             return `${moduleRef}${separator}devices('cpu')[0]`;
+        } else if (device.startsWith('gpu_')) {
+            // Extract GPU index from "gpu_0", "gpu_1", etc.
+            const gpuMatch = device.match(/gpu_(\d+)/);
+            if (gpuMatch) {
+                const deviceNum = gpuMatch[1];
+                return `${moduleRef}${separator}devices('gpu')[${deviceNum}]`;
+            }
+            return `${moduleRef}${separator}devices('gpu')[0]`;
         } else if (device.toLowerCase().includes('gpu') || device.toLowerCase().includes('cuda')) {
             return `${moduleRef}${separator}devices('gpu')[0]`;
         }
@@ -673,15 +772,23 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
 
     private convertDeviceToPytorch(device: string, prefix: string): string {
         // PyTorch device format: torch.device('cpu'), torch.device('cuda:0'), etc.
-        // The device string might be like "cpu" or "cuda:0"
+        // The device string is now formatted as "cpu" or "gpu_0"
         // Handle prefix: if it ends with '.', remove it; if empty, use it as-is
         const moduleRef = prefix.endsWith('.') && prefix !== '' ? prefix.slice(0, -1) : prefix;
         const separator = moduleRef === '' ? '' : '.';
 
-        if (device.toLowerCase().includes('cpu')) {
+        if (device === 'cpu') {
             return `${moduleRef}${separator}device('cpu')`;
+        } else if (device.startsWith('gpu_')) {
+            // Extract GPU index from "gpu_0", "gpu_1", etc.
+            const gpuMatch = device.match(/gpu_(\d+)/);
+            if (gpuMatch) {
+                const deviceNum = gpuMatch[1];
+                return `${moduleRef}${separator}device('cuda:${deviceNum}')`;
+            }
+            return `${moduleRef}${separator}device('cuda')`;
         } else if (device.toLowerCase().includes('cuda')) {
-            // Extract device number if present
+            // Handle legacy cuda:0 format if it still exists
             const match = device.match(/cuda:?(\d+)?/i);
             if (match) {
                 const deviceNum = match[1] || '0';
@@ -770,14 +877,16 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
                         this.evaluateAttribute(variable.name, 'device', frameId)
                     ]);
 
-                    const formattedDtype = dtype ? this.formatDtype(dtype) : null;
+                    const formattedShape = shape ? this.formatShape(shape, varType) : null;
+                    const formattedDtype = dtype ? this.formatDtype(dtype, varType) : null;
+                    const formattedDevice = device ? this.formatDevice(device, varType) : null;
 
                     const info: ArrayInfo = {
                         name: variable.name,
                         type: varType,
-                        shape,
+                        shape: formattedShape,
                         dtype: formattedDtype,
-                        device,
+                        device: formattedDevice,
                         isPinned: false,
                         isAvailable: true
                     };
@@ -863,15 +972,17 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
 
         this.outputChannel.appendLine(`Attributes - shape: ${shape}, dtype: ${dtype}, device: ${device}`);
 
-        // Format dtype for display
-        const formattedDtype = dtype ? this.formatDtype(dtype) : null;
+        // Format attributes for display
+        const formattedShape = shape ? this.formatShape(shape, type) : null;
+        const formattedDtype = dtype ? this.formatDtype(dtype, type) : null;
+        const formattedDevice = device ? this.formatDevice(device, type) : null;
 
         return {
             name,
             type,
-            shape,
+            shape: formattedShape,
             dtype: formattedDtype,
-            device,
+            device: formattedDevice,
             isPinned,
             isAvailable: true
         };
