@@ -404,240 +404,175 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             return;
         }
 
-        try {
-            // Get current frame
-            const frameId = await this.getCurrentFrameId();
-            if (frameId === undefined) {
-                this.scopeArrays.clear();
-                return;
+        // Get current frame
+        const frameId = await this.getCurrentFrameId();
+
+        // Check if frame changed - if so, clear scope arrays
+        if (this.lastFrameId !== frameId) {
+            this.outputChannel.appendLine(`Frame changed from ${this.lastFrameId} to ${frameId}, clearing scope`);
+            this.scopeArrays.clear();
+            this.lastFrameId = frameId;
+        }
+
+        // Get all variables in the current frame using the 'scopes' request
+        const scopesResponse = await session.customRequest('scopes', { frameId });
+        this.outputChannel.appendLine(`Scopes response: ${JSON.stringify(scopesResponse)}`);
+
+        const scopes = scopesResponse.body?.scopes || scopesResponse.scopes;
+        if (!scopes) {
+            throw new Error('Scopes response missing scopes array');
+        }
+
+        // For each scope, get variables
+        for (const scope of scopes) {
+            if (!scope.variablesReference) {
+                continue;
             }
 
-            // Check if frame changed - if so, clear scope arrays
-            if (this.lastFrameId !== frameId) {
-                this.outputChannel.appendLine(`Frame changed from ${this.lastFrameId} to ${frameId}, clearing scope`);
-                this.scopeArrays.clear();
-                this.lastFrameId = frameId;
+            const varsResponse = await session.customRequest('variables', {
+                variablesReference: scope.variablesReference
+            });
+            const variables = varsResponse.body?.variables || varsResponse.variables;
+            if (!variables) {
+                throw new Error(`Variables response missing variables array for scope ${scope.name}`);
             }
 
-            // Get all variables in the current frame using the 'scopes' request
-            const scopesResponse = await session.customRequest('scopes', { frameId });
-            this.outputChannel.appendLine(`Scopes response: ${JSON.stringify(scopesResponse)}`);
+            this.outputChannel.appendLine(`Scope "${scope.name}" has ${variables.length} variables`);
 
-            const scopes = scopesResponse.body?.scopes || scopesResponse.scopes || [];
+            // Check each variable to see if it's a supported array type
+            for (const variable of variables) {
+                const varType = variable.type || '';
+                const varName = variable.name || '<unnamed>';
 
-            // For each scope, get variables
-            for (const scope of scopes) {
-                if (scope.variablesReference) {
-                    const varsResponse = await session.customRequest('variables', {
-                        variablesReference: scope.variablesReference
-                    });
-                    const variables = varsResponse.body?.variables || varsResponse.variables || [];
-                    this.outputChannel.appendLine(`Scope "${scope.name}" has ${variables.length} variables`);
+                // Log each variable we're examining
+                this.outputChannel.appendLine(`  Variable in "${scope.name}": name="${varName}", type="${varType}"`);
 
-                    // Check each variable to see if it's a supported array type
-                    for (const variable of variables) {
-                        const varType = variable.type || '';
-                        const varName = variable.name || '<unnamed>';
+                if (this.isSupportedType(varType) && !this.scopeArrays.has(variable.name)) {
+                    this.outputChannel.appendLine(`  → Matched! Evaluating array: ${variable.name}`);
 
-                        // Log each variable we're examining
-                        this.outputChannel.appendLine(`  Variable in "${scope.name}": name="${varName}", type="${varType}"`);
-
-                        if (this.isSupportedType(varType) && !this.scopeArrays.has(variable.name)) {
-                            this.outputChannel.appendLine(`  → Matched! Evaluating array: ${variable.name}`);
-
-                            // Evaluate the array to get full info
-                            const info = await this.evaluateArray(variable.name, variable.name, false);
-                            if (info.isAvailable) {
-                                this.scopeArrays.set(variable.name, info);
-                            }
-                        }
+                    // Evaluate the array to get full info
+                    const info = await this.evaluateArray(variable.name, variable.name, false);
+                    if (info.isAvailable) {
+                        this.scopeArrays.set(variable.name, info);
                     }
                 }
             }
-
-            this.outputChannel.appendLine(`Total arrays in scope: ${this.scopeArrays.size}`);
-        } catch (error) {
-            this.outputChannel.appendLine(`Error scanning scope: ${error}`);
         }
+
+        this.outputChannel.appendLine(`Total arrays in scope: ${this.scopeArrays.size}`);
     }
 
-    private async getCurrentFrameId(): Promise<number | undefined> {
+    private async getCurrentFrameId(): Promise<number> {
         const session = vscode.debug.activeDebugSession;
         if (!session) {
-            return undefined;
+            throw new Error('No active debug session');
         }
 
-        // Try to get the active stack item (the frame the user has selected)
         const activeStackItem = vscode.debug.activeStackItem;
-        this.outputChannel.appendLine(`Active stack item: ${activeStackItem?.constructor?.name}`);
-
-        if (activeStackItem) {
-            // VSCode's DebugStackFrame has a threadId and frameId property (not 'id')
-            if ('threadId' in activeStackItem && 'frameId' in activeStackItem) {
-                const frameId = (activeStackItem as any).frameId;
-                if (typeof frameId === 'number') {
-                    this.outputChannel.appendLine(`Using selected stack frame ID: ${frameId}`);
-                    return frameId;
-                }
-            }
+        if (!activeStackItem) {
+            throw new Error('No active stack item');
         }
 
-        // Fallback: get the top frame from the first thread
-        this.outputChannel.appendLine('No specific frame selected, using top frame from first thread');
-        try {
-            const threads = await session.customRequest('threads', {});
-            const threadList = threads.body?.threads || threads.threads;
-            if (threadList && threadList.length > 0) {
-                const threadId = threadList[0].id;
-                const stackTrace = await session.customRequest('stackTrace', {
-                    threadId: threadId,
-                    startFrame: 0,
-                    levels: 1
-                });
+        const itemAsAny = activeStackItem as any;
+        this.outputChannel.appendLine(`Active stack item: ${itemAsAny.constructor?.name || 'unknown'}`);
+        this.outputChannel.appendLine(`Active stack item properties: ${JSON.stringify(Object.keys(itemAsAny))}`);
 
-                const frames = stackTrace.body?.stackFrames || stackTrace.stackFrames;
-                if (frames && frames.length > 0) {
-                    this.outputChannel.appendLine(`Using fallback top frame ID: ${frames[0].id}`);
-                    return frames[0].id;
-                }
-            }
-        } catch (error) {
-            this.outputChannel.appendLine(`Error getting current frame ID: ${error}`);
+        // VSCode's DebugStackFrame has a threadId and frameId property
+        if (!('threadId' in itemAsAny)) {
+            throw new Error(`activeStackItem missing threadId property. Type: ${itemAsAny.constructor?.name || 'unknown'}`);
+        }
+        if (!('frameId' in itemAsAny)) {
+            throw new Error(`activeStackItem missing frameId property. Type: ${itemAsAny.constructor?.name || 'unknown'}`);
         }
 
-        return undefined;
+        const frameId = itemAsAny.frameId;
+        if (typeof frameId !== 'number') {
+            throw new Error(`frameId is not a number: ${typeof frameId}, value: ${frameId}`);
+        }
+
+        this.outputChannel.appendLine(`Using stack frame ID: ${frameId}`);
+        return frameId;
     }
 
     private async evaluateArray(expression: string, name: string, isPinned: boolean): Promise<ArrayInfo> {
         const session = vscode.debug.activeDebugSession;
         if (!session) {
-            this.outputChannel.appendLine('No debug session available in evaluateArray');
+            throw new Error('No active debug session');
+        }
+
+        const frameId = await this.getCurrentFrameId();
+
+        this.outputChannel.appendLine(`Evaluating "${expression}" with frameId: ${frameId}`);
+
+        const result = await session.customRequest('evaluate', {
+            expression,
+            context: 'hover',
+            frameId
+        });
+
+        this.outputChannel.appendLine(`Evaluate response: ${JSON.stringify(result)}`);
+
+        const responseBody = result.body || result;
+        if (!responseBody || !responseBody.result) {
+            throw new Error(`Evaluation failed for "${expression}" - no result in response`);
+        }
+
+        const type = responseBody.type || '';
+        this.outputChannel.appendLine(`Type for "${expression}": "${type}"`);
+
+        if (!this.isSupportedType(type)) {
+            this.outputChannel.appendLine(`Type "${type}" is not in supported types`);
             return this.createUnavailableInfo(name, isPinned);
         }
 
-        try {
-            // Get the current frame ID for proper context
-            let frameId: number | undefined;
-            try {
-                const threads = await session.customRequest('threads', {});
-                this.outputChannel.appendLine(`Threads response: ${JSON.stringify(threads)}`);
+        // Evaluate attributes
+        this.outputChannel.appendLine(`Evaluating attributes for "${expression}"`);
+        const [shape, dtype, device] = await Promise.all([
+            this.evaluateAttribute(expression, 'shape', frameId),
+            this.evaluateAttribute(expression, 'dtype', frameId),
+            this.evaluateAttribute(expression, 'device', frameId)
+        ]);
 
-                // Try both response formats: threads.body.threads and threads.threads
-                const threadList = threads.body?.threads || threads.threads;
-                if (threadList && threadList.length > 0) {
-                    const threadId = threadList[0].id;
-                    this.outputChannel.appendLine(`Using thread ID: ${threadId}`);
+        this.outputChannel.appendLine(`Attributes - shape: ${shape}, dtype: ${dtype}, device: ${device}`);
 
-                    const stackTrace = await session.customRequest('stackTrace', {
-                        threadId: threadId,
-                        startFrame: 0,
-                        levels: 1
-                    });
-                    this.outputChannel.appendLine(`StackTrace response: ${JSON.stringify(stackTrace)}`);
+        // Format dtype for display
+        const formattedDtype = dtype ? this.formatDtype(dtype) : null;
 
-                    // Try both response formats: stackTrace.body.stackFrames and stackTrace.stackFrames
-                    const frames = stackTrace.body?.stackFrames || stackTrace.stackFrames;
-                    if (frames && frames.length > 0) {
-                        frameId = frames[0].id;
-                        this.outputChannel.appendLine(`Using frame ID: ${frameId}`);
-                    } else {
-                        this.outputChannel.appendLine(`No stack frames found in response`);
-                    }
-                } else {
-                    this.outputChannel.appendLine(`No threads found in response`);
-                }
-            } catch (error) {
-                this.outputChannel.appendLine(`Warning: Could not get frameId: ${error}`);
-            }
-
-            this.outputChannel.appendLine(`Sending evaluate request for: "${expression}" with frameId: ${frameId}`);
-            // First, evaluate the expression to get the type
-            const evaluateParams: any = {
-                expression,
-                context: 'hover'
-            };
-            if (frameId !== undefined) {
-                evaluateParams.frameId = frameId;
-            }
-
-            const result = await session.customRequest('evaluate', evaluateParams);
-
-            this.outputChannel.appendLine(`Evaluate response (raw): ${JSON.stringify(result)}`);
-
-            // DAP evaluate returns the body directly, not wrapped in {success, body}
-            const responseBody = result.body || result;
-
-            if (!responseBody || !responseBody.result) {
-                this.outputChannel.appendLine(`Evaluation failed for "${expression}" - no result in response`);
-                return this.createUnavailableInfo(name, isPinned);
-            }
-
-            this.outputChannel.appendLine(`Evaluate response body: ${JSON.stringify(responseBody)}`);
-
-            const type = responseBody.type || '';
-            this.outputChannel.appendLine(`Type for "${expression}": "${type}"`);
-
-            if (!this.isSupportedType(type)) {
-                this.outputChannel.appendLine(`Type "${type}" is not in supported types`);
-                return this.createUnavailableInfo(name, isPinned);
-            }
-
-            // Evaluate attributes
-            this.outputChannel.appendLine(`Evaluating attributes for "${expression}"`);
-            const [shape, dtype, device] = await Promise.all([
-                this.evaluateAttribute(expression, 'shape', frameId),
-                this.evaluateAttribute(expression, 'dtype', frameId),
-                this.evaluateAttribute(expression, 'device', frameId)
-            ]);
-
-            this.outputChannel.appendLine(`Attributes - shape: ${shape}, dtype: ${dtype}, device: ${device}`);
-
-            // Format dtype for display
-            const formattedDtype = dtype ? this.formatDtype(dtype) : null;
-
-            return {
-                name,
-                type,
-                shape,
-                dtype: formattedDtype,
-                device,
-                isPinned,
-                isAvailable: true
-            };
-        } catch (error) {
-            this.outputChannel.appendLine(`Error evaluating "${expression}": ${error}`);
-            return this.createUnavailableInfo(name, isPinned);
-        }
+        return {
+            name,
+            type,
+            shape,
+            dtype: formattedDtype,
+            device,
+            isPinned,
+            isAvailable: true
+        };
     }
 
-    private async evaluateAttribute(expression: string, attribute: string, frameId?: number): Promise<string | null> {
+    private async evaluateAttribute(expression: string, attribute: string, frameId: number): Promise<string | null> {
         const session = vscode.debug.activeDebugSession;
         if (!session) {
-            return null;
+            throw new Error('No active debug session');
         }
 
         try {
             const attrExpression = `${expression}.${attribute}`;
-            const evaluateParams: any = {
+            const result = await session.customRequest('evaluate', {
                 expression: attrExpression,
-                context: 'hover'
-            };
-            if (frameId !== undefined) {
-                evaluateParams.frameId = frameId;
-            }
+                context: 'hover',
+                frameId
+            });
 
-            const result = await session.customRequest('evaluate', evaluateParams);
-
-            // DAP evaluate returns the body directly
             const responseBody = result.body || result;
-            if (responseBody && responseBody.result) {
-                return responseBody.result;
+            if (!responseBody || !responseBody.result) {
+                return null;
             }
-        } catch (error) {
-            // Attribute not available
-        }
 
-        return null;
+            return responseBody.result;
+        } catch (error) {
+            // Attribute not available (e.g., torch.Tensor doesn't have .device on CPU)
+            return null;
+        }
     }
 
     private isSupportedType(type: string): boolean {
