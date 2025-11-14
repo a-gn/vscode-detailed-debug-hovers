@@ -431,15 +431,19 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
                     const varsResponse = await session.customRequest('variables', {
                         variablesReference: scope.variablesReference
                     });
-                    this.outputChannel.appendLine(`Variables in scope "${scope.name}": ${varsResponse.body?.variables?.length || 0}`);
-
                     const variables = varsResponse.body?.variables || varsResponse.variables || [];
+                    this.outputChannel.appendLine(`Scope "${scope.name}" has ${variables.length} variables`);
 
                     // Check each variable to see if it's a supported array type
                     for (const variable of variables) {
                         const varType = variable.type || '';
+                        const varName = variable.name || '<unnamed>';
+
+                        // Log each variable we're examining
+                        this.outputChannel.appendLine(`  Variable in "${scope.name}": name="${varName}", type="${varType}"`);
+
                         if (this.isSupportedType(varType) && !this.scopeArrays.has(variable.name)) {
-                            this.outputChannel.appendLine(`Found array in scope: ${variable.name} (${varType})`);
+                            this.outputChannel.appendLine(`  → Matched! Evaluating array: ${variable.name}`);
 
                             // Evaluate the array to get full info
                             const info = await this.evaluateArray(variable.name, variable.name, false);
@@ -619,17 +623,13 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
     }
 
     private isSupportedType(type: string): boolean {
-        this.outputChannel.appendLine(`Checking if type "${type}" is supported`);
-
         // Reject empty or whitespace-only types
         if (!type || type.trim().length === 0) {
-            this.outputChannel.appendLine(`Empty type rejected`);
             return false;
         }
 
         // Check exact match first
         if (this.supportedTypes.has(type)) {
-            this.outputChannel.appendLine(`Exact match found for "${type}"`);
             return true;
         }
 
@@ -640,12 +640,10 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         for (const supportedType of this.supportedTypes) {
             if (supportedType.length > 0 && type.length > 0 &&
                 (type.includes(supportedType) || supportedType.includes(type))) {
-                this.outputChannel.appendLine(`Partial match: "${type}" matched with configured type "${supportedType}"`);
                 return true;
             }
         }
 
-        this.outputChannel.appendLine(`No match found for "${type}". Configured types: ${Array.from(this.supportedTypes).join(', ')}`);
         return false;
     }
 
