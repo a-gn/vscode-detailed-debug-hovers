@@ -72,6 +72,8 @@ Arrays out of scope → Removed from panel automatically
 - `getDisplayMode()`: Returns current display mode
 - `toggleInlineOnHighlighted()`: Toggles inline display on highlighted array
 - `getShowInlineOnHighlighted()`: Returns inline display state
+- `getTreeItem(element)`: Returns tree item for display
+- `getParent(element)`: Returns parent item (required for reveal functionality)
 - `getChildren(element)`: Returns tree structure - highlighted item + sections at root
 - `getSectionChildren(sectionType)`: Returns arrays for each section (pinned/scope)
 - `getCollapsibleStateForMode()`: Determines if items should be collapsible based on display mode

@@ -143,6 +143,36 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         return element;
     }
 
+    getParent(element: ArrayInfoItem): ArrayInfoItem | undefined {
+        // If element is a section, it has no parent (it's at root level)
+        if (element.isSection) {
+            return undefined;
+        }
+
+        // If element is highlighted, its parent is the "Highlighted Array" section
+        if (element.isHighlighted) {
+            return ArrayInfoItem.createSection('highlighted', 'Highlighted Array');
+        }
+
+        // For other elements, we need to determine which section they belong to
+        // Check if it's in pinned arrays
+        if (element.arrayInfo.isPinned) {
+            return ArrayInfoItem.createSection('pinned', 'Pinned');
+        }
+
+        // Check if it's in locals or globals
+        if (this.localsArrays.has(element.arrayInfo.name)) {
+            return ArrayInfoItem.createSection('locals', 'Locals');
+        }
+
+        if (this.globalsArrays.has(element.arrayInfo.name)) {
+            return ArrayInfoItem.createSection('globals', 'Globals');
+        }
+
+        // Default: no parent
+        return undefined;
+    }
+
     async getChildren(element?: ArrayInfoItem): Promise<ArrayInfoItem[]> {
         if (!vscode.debug.activeDebugSession) {
             return [];
