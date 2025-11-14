@@ -7,12 +7,15 @@ import { ArrayInspectorProvider, ArrayInfoItem } from './arrayInspector';
 
 let arrayInspectorProvider: ArrayInspectorProvider;
 let hoverTimeout: NodeJS.Timeout | undefined;
+let outputChannel: vscode.OutputChannel;
 
 export function activate(context: vscode.ExtensionContext): void {
-    console.log('Array Inspector extension is now active');
+    outputChannel = vscode.window.createOutputChannel('Array Inspector');
+    outputChannel.appendLine('Array Inspector extension is now active');
+    context.subscriptions.push(outputChannel);
 
     // Create and register the tree view provider
-    arrayInspectorProvider = new ArrayInspectorProvider();
+    arrayInspectorProvider = new ArrayInspectorProvider(outputChannel);
     const treeView = vscode.window.createTreeView('arrayInspectorView', {
         treeDataProvider: arrayInspectorProvider,
         showCollapseAll: true
@@ -59,6 +62,7 @@ export function activate(context: vscode.ExtensionContext): void {
 function handleSelectionChange(event: vscode.TextEditorSelectionChangeEvent): void {
     // Only process during active debug sessions
     if (!vscode.debug.activeDebugSession) {
+        outputChannel.appendLine('Selection changed but no active debug session');
         return;
     }
 
@@ -67,8 +71,11 @@ function handleSelectionChange(event: vscode.TextEditorSelectionChangeEvent): vo
 
     // Check if it's a Python file
     if (editor.document.languageId !== 'python') {
+        outputChannel.appendLine(`Selection changed in non-Python file: ${editor.document.languageId}`);
         return;
     }
+
+    outputChannel.appendLine(`Selection changed at line ${selection.active.line}, char ${selection.active.character}`);
 
     // Debounce hover detection to avoid too many evaluations
     if (hoverTimeout) {
@@ -85,10 +92,12 @@ function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Posit
     const wordRange = editor.document.getWordRangeAtPosition(position, /[a-zA-Z_][a-zA-Z0-9_]*/);
 
     if (!wordRange) {
+        outputChannel.appendLine('No word found at cursor position');
         return;
     }
 
     const word = editor.document.getText(wordRange);
+    outputChannel.appendLine(`Detected word: "${word}"`);
 
     // Ignore keywords and common built-ins
     const keywords = new Set([
@@ -100,9 +109,11 @@ function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Posit
     ]);
 
     if (keywords.has(word)) {
+        outputChannel.appendLine(`Ignoring keyword: "${word}"`);
         return;
     }
 
+    outputChannel.appendLine(`Handling hover for: "${word}"`);
     // Handle the hover
     arrayInspectorProvider.handleHover(word);
 }

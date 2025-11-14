@@ -14,10 +14,13 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
     private supportedTypes: Set<string>;
     private attributes: string[];
 
-    constructor() {
+    constructor(private outputChannel: vscode.OutputChannel) {
         const config = vscode.workspace.getConfiguration('arrayInspector');
         this.supportedTypes = new Set(config.get<string[]>('supportedTypes', []));
         this.attributes = config.get<string[]>('attributes', ['shape', 'dtype', 'device']);
+
+        this.outputChannel.appendLine(`Configured supported types: ${Array.from(this.supportedTypes).join(', ')}`);
+        this.outputChannel.appendLine(`Configured attributes: ${this.attributes.join(', ')}`);
 
         // Listen to configuration changes
         vscode.workspace.onDidChangeConfiguration((e) => {
@@ -118,20 +121,30 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
     }
 
     async handleHover(expression: string): Promise<void> {
+        this.outputChannel.appendLine(`handleHover called for: "${expression}"`);
+
         if (!vscode.debug.activeDebugSession) {
+            this.outputChannel.appendLine('No active debug session');
             return;
         }
 
         // Don't update if this is a pinned array
         if (this.pinnedArrays.has(expression)) {
+            this.outputChannel.appendLine(`"${expression}" is already pinned, skipping`);
             return;
         }
 
+        this.outputChannel.appendLine(`Evaluating array: "${expression}"`);
         const info = await this.evaluateArray(expression, expression, false);
 
+        this.outputChannel.appendLine(`Evaluation result - isAvailable: ${info.isAvailable}, type: "${info.type}"`);
+
         if (info.isAvailable && this.isSupportedType(info.type)) {
+            this.outputChannel.appendLine(`Type "${info.type}" is supported, updating panel`);
             this.currentHoveredArray = info;
             this.refresh();
+        } else {
+            this.outputChannel.appendLine(`Type "${info.type}" is not supported or array not available`);
         }
     }
 
@@ -154,32 +167,42 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
     private async evaluateArray(expression: string, name: string, isPinned: boolean): Promise<ArrayInfo> {
         const session = vscode.debug.activeDebugSession;
         if (!session) {
+            this.outputChannel.appendLine('No debug session available in evaluateArray');
             return this.createUnavailableInfo(name, isPinned);
         }
 
         try {
+            this.outputChannel.appendLine(`Sending evaluate request for: "${expression}"`);
             // First, evaluate the expression to get the type
             const result = await session.customRequest('evaluate', {
                 expression,
                 context: 'hover'
             }) as EvaluateResponse;
 
+            this.outputChannel.appendLine(`Evaluate response: success=${result.success}, body=${JSON.stringify(result.body)}`);
+
             if (!result.success || !result.body) {
+                this.outputChannel.appendLine(`Evaluation failed for "${expression}"`);
                 return this.createUnavailableInfo(name, isPinned);
             }
 
             const type = result.body.type || '';
+            this.outputChannel.appendLine(`Type for "${expression}": "${type}"`);
 
             if (!this.isSupportedType(type)) {
+                this.outputChannel.appendLine(`Type "${type}" is not in supported types`);
                 return this.createUnavailableInfo(name, isPinned);
             }
 
             // Evaluate attributes
+            this.outputChannel.appendLine(`Evaluating attributes for "${expression}"`);
             const [shape, dtype, device] = await Promise.all([
                 this.evaluateAttribute(expression, 'shape'),
                 this.evaluateAttribute(expression, 'dtype'),
                 this.evaluateAttribute(expression, 'device')
             ]);
+
+            this.outputChannel.appendLine(`Attributes - shape: ${shape}, dtype: ${dtype}, device: ${device}`);
 
             return {
                 name,
@@ -191,6 +214,7 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
                 isAvailable: true
             };
         } catch (error) {
+            this.outputChannel.appendLine(`Error evaluating "${expression}": ${error}`);
             return this.createUnavailableInfo(name, isPinned);
         }
     }
