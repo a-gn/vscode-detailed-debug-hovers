@@ -58,7 +58,7 @@ jobs:
       - name: Publish to VSCode Marketplace
         run: |
           INCREMENT="${{ github.event.inputs.increment || 'minor' }}"
-          vsce publish "$INCREMENT" -p ${{ secrets.VSCE_PAT }}
+          vsce publish "$INCREMENT"
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
