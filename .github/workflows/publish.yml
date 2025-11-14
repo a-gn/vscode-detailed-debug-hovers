@@ -21,7 +21,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: Deployments
+    environment: Deployment
 
     steps:
       - name: Checkout code
