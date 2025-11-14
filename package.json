@@ -1,0 +1,181 @@
+{
+  "name": "vscode-detailed-debug-hovers",
+  "displayName": "Detailed Debug Hovers",
+  "description": "Show detailed array information (shape, dtype, device) in a sidebar panel during Python debugging",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Debuggers"
+  ],
+  "activationEvents": [
+    "onDebug"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "arrayInspector",
+          "title": "Array Inspector",
+          "icon": "$(symbol-array)"
+        }
+      ]
+    },
+    "views": {
+      "arrayInspector": [
+        {
+          "id": "arrayInspectorView",
+          "name": "Array Inspector",
+          "when": "debugType == 'python' || debugType == 'debugpy'"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "arrayInspector.pinArray",
+        "title": "Pin Array",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "arrayInspector.unpinArray",
+        "title": "Unpin Array",
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "arrayInspector.toggleDisplayMode",
+        "title": "Toggle Display Mode",
+        "icon": "$(layout)"
+      },
+      {
+        "command": "arrayInspector.copyNumpyCreationOptions",
+        "title": "Copy NumPy Creation Options"
+      },
+      {
+        "command": "arrayInspector.copyJaxCreationOptions",
+        "title": "Copy JAX Creation Options"
+      },
+      {
+        "command": "arrayInspector.copyPytorchCreationOptions",
+        "title": "Copy PyTorch Creation Options"
+      },
+      {
+        "command": "arrayInspector.toggleCollapseExpandAll",
+        "title": "Toggle Collapse/Expand All",
+        "icon": "$(collapse-all)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "arrayInspector.toggleDisplayMode",
+          "when": "view == arrayInspectorView",
+          "group": "navigation"
+        },
+        {
+          "command": "arrayInspector.toggleCollapseExpandAll",
+          "when": "view == arrayInspectorView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "arrayInspector.pinArray",
+          "when": "view == arrayInspectorView && viewItem == unpinned",
+          "group": "inline"
+        },
+        {
+          "command": "arrayInspector.unpinArray",
+          "when": "view == arrayInspectorView && viewItem == pinned",
+          "group": "inline"
+        },
+        {
+          "command": "arrayInspector.copyNumpyCreationOptions",
+          "when": "view == arrayInspectorView && viewItem =~ /(unpinned|pinned|highlighted)/",
+          "group": "copy@1"
+        },
+        {
+          "command": "arrayInspector.copyJaxCreationOptions",
+          "when": "view == arrayInspectorView && viewItem =~ /(unpinned|pinned|highlighted)/",
+          "group": "copy@2"
+        },
+        {
+          "command": "arrayInspector.copyPytorchCreationOptions",
+          "when": "view == arrayInspectorView && viewItem =~ /(unpinned|pinned|highlighted)/",
+          "group": "copy@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Array Inspector",
+      "properties": {
+        "arrayInspector.supportedTypes": {
+          "type": "array",
+          "default": [
+            "jax.Array",
+            "jaxlib.xla_extension.ArrayImpl",
+            "numpy.ndarray",
+            "torch.Tensor"
+          ],
+          "description": "Python types to show in the Array Inspector"
+        },
+        "arrayInspector.attributes": {
+          "type": "array",
+          "default": [
+            "shape",
+            "dtype",
+            "device"
+          ],
+          "description": "Attributes to display for arrays"
+        },
+        "arrayInspector.numpyPrefix": {
+          "type": "string",
+          "default": "np.",
+          "pattern": "^(|[a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*\\.)$",
+          "description": "Prefix for NumPy dtypes when copying creation options (e.g., 'np.' for 'np.int32'). Must be empty or end with '.' and be a valid Python module path."
+        },
+        "arrayInspector.jaxNumpyPrefix": {
+          "type": "string",
+          "default": "jnp.",
+          "pattern": "^(|[a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*\\.)$",
+          "description": "Prefix for JAX NumPy (jax.numpy) dtypes when copying creation options (e.g., 'jnp.' for 'jnp.int32'). Must be empty or end with '.' and be a valid Python module path."
+        },
+        "arrayInspector.jaxPrefix": {
+          "type": "string",
+          "default": "jax.",
+          "pattern": "^(|[a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*\\.)$",
+          "description": "Prefix for JAX devices when copying creation options (e.g., 'jax.' for 'jax.devices()'). Must be empty or end with '.' and be a valid Python module path."
+        },
+        "arrayInspector.pytorchPrefix": {
+          "type": "string",
+          "default": "torch.",
+          "pattern": "^(|[a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*\\.)$",
+          "description": "Prefix for PyTorch dtypes and devices when copying creation options (e.g., 'torch.' for 'torch.int32' and 'torch.device()'). Must be empty or end with '.' and be a valid Python module path."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "node out/test/runTest.js",
+    "test:unit": "npm run compile && npx mocha out/test/unit.test.js",
+    "pretest": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^8.54.0",
+    "glob": "^11.0.3",
+    "mocha": "^10.8.2",
+    "typescript": "^5.3.2"
+  }
+}

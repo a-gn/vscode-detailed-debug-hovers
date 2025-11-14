@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: NumPy Example",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/numpy_example.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: JAX Example",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/jax_example.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: PyTorch Example",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/torch_example.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}
