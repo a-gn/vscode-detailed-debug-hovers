@@ -5,18 +5,6 @@ on:
   push:
     branches:
       - main
-  # Allow manual trigger from Actions tab
-  workflow_dispatch:
-    inputs:
-      increment:
-        description: 'Version increment (major, minor, or patch)'
-        required: false
-        default: 'minor'
-        type: choice
-        options:
-          - major
-          - minor
-          - patch
 
 jobs:
   publish:
@@ -56,19 +44,21 @@ jobs:
         run: npm install -g @vscode/vsce
 
       - name: Publish to VSCode Marketplace
-        run: |
-          INCREMENT="${{ github.event.inputs.increment || 'minor' }}"
-          vsce publish "$INCREMENT"
+        run: vsce publish minor
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Push version commit and tag
-        run: |
-          git push origin main --follow-tags
+        run: git push origin main --follow-tags
 
-      - name: Upload VSIX as artifact
-        uses: actions/upload-artifact@v4
+      - name: Get version
+        id: version
+        run: echo "version=v$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
         with:
-          name: vsix-package
-          path: '*.vsix'
-          retention-days: 30
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          files: '*.vsix'
+          generate_release_notes: true

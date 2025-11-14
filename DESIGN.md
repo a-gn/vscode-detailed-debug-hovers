@@ -1,4 +1,4 @@
-# Array Inspector VSCode Extension - Design Document
+# VSCode Array Inspector - Design Document
 
 This document is written and maintained by AI agents. It's meant to help them get up to speed quickly in new sessions.
 

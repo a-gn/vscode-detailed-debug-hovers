@@ -1,4 +1,4 @@
-# Detailed Debug Hovers for VSCode
+# VSCode Array Inspector
 
 A VSCode extension that shows detailed array information (shape, dtype, device) in a sidebar panel during Python debugging sessions.
 

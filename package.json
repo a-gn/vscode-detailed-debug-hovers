@@ -1,6 +1,6 @@
 {
-  "name": "vscode-detailed-debug-hovers",
-  "displayName": "Detailed Debug Hovers",
+  "name": "vscode-array-inspector",
+  "displayName": "VSCode Array Inspector",
   "description": "Show detailed array information (shape, dtype, device) in a sidebar panel during Python debugging",
   "version": "0.1.0",
   "engines": {
