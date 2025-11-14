@@ -38,8 +38,8 @@ export function activate(context: vscode.ExtensionContext): void {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('arrayInspector.refresh', () => {
-            arrayInspectorProvider.refresh();
+        vscode.commands.registerCommand('arrayInspector.refresh', async () => {
+            await arrayInspectorProvider.refresh();
         })
     );
 

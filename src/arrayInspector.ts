@@ -69,7 +69,9 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         this.attributes = config.get<string[]>('attributes', ['shape', 'dtype', 'device']);
     }
 
-    refresh(): void {
+    async refresh(): Promise<void> {
+        // Re-scan scope arrays when manually refreshing
+        await this.scanScopeForArrays();
         this._onDidChangeTreeData.fire();
     }
 
@@ -129,10 +131,8 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         // Root level: show items
         const items: ArrayInfoItem[] = [];
 
-        // Item 1: Highlighted (currently selected array)
-        if (this.currentHoveredArray) {
-            items.push(ArrayInfoItem.createHighlighted(this.currentHoveredArray, this.displayMode, this.showInlineOnHighlighted));
-        }
+        // Item 1: Highlighted (always show, even when empty)
+        items.push(ArrayInfoItem.createSection('highlighted', 'Highlighted Array'));
 
         // Section 2: Pinned
         if (this.pinnedArrays.size > 0) {
@@ -151,7 +151,23 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
     private async getSectionChildren(sectionType: string): Promise<ArrayInfoItem[]> {
         const items: ArrayInfoItem[] = [];
 
-        if (sectionType === 'pinned') {
+        if (sectionType === 'highlighted') {
+            if (this.currentHoveredArray) {
+                items.push(ArrayInfoItem.createHighlighted(this.currentHoveredArray, this.displayMode, this.showInlineOnHighlighted));
+            } else {
+                // Show "No highlighted array" message
+                const noArrayInfo: ArrayInfo = {
+                    name: 'No highlighted array',
+                    type: '',
+                    shape: null,
+                    dtype: null,
+                    device: null,
+                    isPinned: false,
+                    isAvailable: false
+                };
+                items.push(new ArrayInfoItem(noArrayInfo, vscode.TreeItemCollapsibleState.None, this.displayMode, true, false, undefined, false));
+            }
+        } else if (sectionType === 'pinned') {
             for (const [name, pinned] of this.pinnedArrays) {
                 const info = await this.evaluateArray(pinned.expression, name, true);
                 if (info.isAvailable) {
@@ -174,15 +190,15 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
 
     private getCollapsibleStateForMode(): vscode.TreeItemCollapsibleState {
         // In OneLine mode, no children (all info on one line)
-        // In TwoLine mode, show one child with compact info
-        // In Expanded mode, show children (one per attribute)
+        // In TwoLine mode, show one child with compact info (auto-expanded)
+        // In Expanded mode, show children (one per attribute, auto-expanded)
         switch (this.displayMode) {
             case DisplayMode.OneLine:
                 return vscode.TreeItemCollapsibleState.None;
             case DisplayMode.TwoLine:
-                return vscode.TreeItemCollapsibleState.Collapsed;
+                return vscode.TreeItemCollapsibleState.Expanded;
             case DisplayMode.Expanded:
-                return vscode.TreeItemCollapsibleState.Collapsed;
+                return vscode.TreeItemCollapsibleState.Expanded;
         }
     }
 
@@ -735,7 +751,7 @@ export class ArrayInfoItem extends vscode.TreeItem {
         // Determine collapsible state based on display mode and showInline
         let collapsibleState = vscode.TreeItemCollapsibleState.None;
         if (!showInline && (displayMode === DisplayMode.TwoLine || displayMode === DisplayMode.Expanded)) {
-            collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+            collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
         }
 
         return new ArrayInfoItem(
