@@ -6,28 +6,35 @@
 
 **Target Arrays**: JAX arrays (`jax.Array`, `jaxlib.xla_extension.ArrayImpl`) and NumPy arrays (`numpy.ndarray`)
 
-**Current Status**: Extension is functional. Arrays now appear correctly when clicking on variables during debugging. Fixed by adding `frameId` parameter to DAP evaluate requests.
+**Current Status**: Fully functional with automatic scope scanning. The panel shows three sections: Current (selected array), Pinned (user-pinned arrays), and In Scope (all arrays in the current stack frame). Arrays automatically update when changing stack frames or when variables go out of scope.
 
 ## Architecture
 
 ### High-Level Flow
 
 ```
-User clicks on array variable in code
+Debugging starts → Extension activates
     ↓
-handleSelectionChange() detects cursor change
+Stack frame becomes active → scanScopeForArrays() triggered
     ↓
-detectHoveredVariable() extracts variable name
+For each scope in frame:
+   - Get all variables via DAP 'scopes' and 'variables' requests
+   - Filter for supported array types
+   - Evaluate each array to get full info
+   - Store in scopeArrays map
     ↓
-ArrayInspectorProvider.handleHover() called
+User clicks on array variable → handleHover() called
     ↓
-evaluateArray() sends customRequest('evaluate') to debug adapter
+Set as currentHoveredArray
     ↓
-Debug Adapter (debugpy) returns type and value
+Panel displays 3 sections:
+   1. Current: Currently selected array
+   2. Pinned: User-pinned arrays (persist across frames)
+   3. In Scope: All other arrays in current frame
     ↓
-If type matches config, evaluate attributes (.shape, .dtype, .device)
+Stack frame changes → Clear scope, rescan
     ↓
-Update TreeView and display in sidebar panel
+Arrays out of scope → Removed from panel automatically
 ```
 
 ### Key Components
@@ -57,15 +64,28 @@ Update TreeView and display in sidebar panel
 - Display results in tree view
 
 **Key Functions**:
-- `handleHover(expression)`: Entry point from extension.ts
+- `handleHover(expression)`: Entry point from extension.ts - sets current array
+- `getChildren(element)`: Returns tree structure - sections at root, arrays in sections
+- `getSectionChildren(sectionType)`: Returns arrays for each section (current/pinned/scope)
+- `scanScopeForArrays()`: **NEW** - Automatically scans current frame for all array variables
+- `getCurrentFrameId()`: Gets current stack frame ID
 - `evaluateArray(expression, name, isPinned)`: Main evaluation logic - gets frameId from current stack frame
 - `evaluateAttribute(expression, attribute, frameId)`: Evaluate individual attributes like `.shape`
 - `isSupportedType(type)`: Check if type matches configuration
 
+**Data Structures**:
+- `currentHoveredArray`: Currently selected array (shown in "Current" section)
+- `pinnedArrays`: Map of pinned arrays (shown in "Pinned" section)
+- `scopeArrays`: **NEW** - Map of all arrays in current scope (shown in "In Scope" section)
+- `lastFrameId`: **NEW** - Track frame changes to detect when scope needs refreshing
+
 **Critical Dependencies**:
 - `vscode.debug.activeDebugSession`: Must be non-null
+- `vscode.debug.onDidChangeActiveStackItem`: **NEW** - Listen to stack frame changes
 - `session.customRequest('threads', {})`: Gets active threads
 - `session.customRequest('stackTrace', {...})`: Gets current stack frame
+- `session.customRequest('scopes', {frameId})`: **NEW** - Gets all scopes in frame
+- `session.customRequest('variables', {variablesReference})`: **NEW** - Gets all variables in scope
 - `session.customRequest('evaluate', {...})`: DAP protocol call with frameId
 
 #### 3. `src/types.ts` - TypeScript Interfaces
@@ -284,10 +304,32 @@ print(arr.shape)           # Click on 'arr' when paused
 **Important**: Variables must be **already defined** when the debugger pauses. If you set a breakpoint on the line where a variable is created, that variable won't exist yet!
 
 ### What to Expect
+
+The panel shows **three expandable sections**:
+
+1. **Current** (if an array is selected):
+   - The most recently clicked array
+   - Automatically expanded to show attributes
+   - Updates when you click on different array variables
+
+2. **Pinned**:
+   - Arrays you've manually pinned (click pin icon)
+   - Persist across stack frame changes
+   - Re-evaluated each time frame changes
+   - Shown as "N/A" if no longer in scope
+   - Automatically expanded
+
+3. **In Scope**:
+   - **All arrays** found in the current stack frame (automatic scanning!)
+   - Excludes arrays already shown in Current or Pinned
+   - Initially collapsed (click to expand)
+   - Automatically cleared and rescanned when stack frame changes
+
+**Behavior**:
 - Arrays will appear with their type (e.g., "arr1 (numpy.ndarray)")
-- Expandable to show attributes: shape, dtype, device
-- Pinned arrays persist across stack frame changes
-- Unpinned arrays update when you click on different variables
+- Click to expand and see attributes: shape, dtype, device
+- Arrays disappear automatically when they go out of scope (frame change, variable deleted)
+- Stack frame changes trigger automatic rescan of all arrays
 
 ## Testing
 

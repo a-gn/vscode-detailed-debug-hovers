@@ -11,8 +11,10 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
 
     private currentHoveredArray: ArrayInfo | null = null;
     private pinnedArrays: Map<string, PinnedArray> = new Map();
+    private scopeArrays: Map<string, ArrayInfo> = new Map();
     private supportedTypes: Set<string>;
     private attributes: string[];
+    private lastFrameId: number | undefined;
 
     constructor(private outputChannel: vscode.OutputChannel) {
         const config = vscode.workspace.getConfiguration('arrayInspector');
@@ -32,12 +34,22 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
 
         // Listen to debug session changes
         vscode.debug.onDidChangeActiveDebugSession(() => {
+            this.lastFrameId = undefined;
+            this.scopeArrays.clear();
             this.updateAllArrays();
         });
 
         vscode.debug.onDidTerminateDebugSession(() => {
             this.currentHoveredArray = null;
+            this.scopeArrays.clear();
+            this.lastFrameId = undefined;
             this.refresh();
+        });
+
+        // Listen to active stack frame changes
+        vscode.debug.onDidChangeActiveStackItem(() => {
+            this.outputChannel.appendLine('Stack frame changed, updating arrays');
+            this.updateAllArrays();
         });
     }
 
@@ -61,22 +73,59 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         }
 
         if (element) {
-            // Return attribute children for an array
+            // If it's a section header, return its children
+            if (element.isSection) {
+                return this.getSectionChildren(element.sectionType!);
+            }
+            // Otherwise return attribute children for an array
             return this.getArrayAttributes(element.arrayInfo);
         }
 
-        // Root level: show pinned arrays first, then current hovered array
-        const items: ArrayInfoItem[] = [];
+        // Root level: show sections
+        const sections: ArrayInfoItem[] = [];
 
-        // Update pinned arrays
-        for (const [name, pinned] of this.pinnedArrays) {
-            const info = await this.evaluateArray(pinned.expression, name, true);
-            items.push(new ArrayInfoItem(info, vscode.TreeItemCollapsibleState.Expanded));
+        // Section 1: Current (selected array)
+        if (this.currentHoveredArray) {
+            sections.push(ArrayInfoItem.createSection('current', 'Current'));
         }
 
-        // Add currently hovered array if not pinned
-        if (this.currentHoveredArray && !this.pinnedArrays.has(this.currentHoveredArray.name)) {
+        // Section 2: Pinned
+        if (this.pinnedArrays.size > 0) {
+            sections.push(ArrayInfoItem.createSection('pinned', 'Pinned'));
+        }
+
+        // Section 3: In Scope - scan for all arrays in current frame
+        await this.scanScopeForArrays();
+        if (this.scopeArrays.size > 0) {
+            sections.push(ArrayInfoItem.createSection('scope', 'In Scope'));
+        }
+
+        return sections;
+    }
+
+    private async getSectionChildren(sectionType: string): Promise<ArrayInfoItem[]> {
+        const items: ArrayInfoItem[] = [];
+
+        if (sectionType === 'current' && this.currentHoveredArray) {
             items.push(new ArrayInfoItem(this.currentHoveredArray, vscode.TreeItemCollapsibleState.Expanded));
+        } else if (sectionType === 'pinned') {
+            for (const [name, pinned] of this.pinnedArrays) {
+                const info = await this.evaluateArray(pinned.expression, name, true);
+                if (info.isAvailable) {
+                    items.push(new ArrayInfoItem(info, vscode.TreeItemCollapsibleState.Expanded));
+                }
+            }
+        } else if (sectionType === 'scope') {
+            // Show arrays from scope that aren't current or pinned
+            for (const [name, info] of this.scopeArrays) {
+                const isCurrentOrPinned =
+                    (this.currentHoveredArray && this.currentHoveredArray.name === name) ||
+                    this.pinnedArrays.has(name);
+
+                if (!isCurrentOrPinned && info.isAvailable) {
+                    items.push(new ArrayInfoItem(info, vscode.TreeItemCollapsibleState.Collapsed));
+                }
+            }
         }
 
         return items;
@@ -160,8 +209,98 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
     }
 
     private async updateAllArrays(): Promise<void> {
-        // Update all pinned arrays
+        // Scan scope and refresh view
+        await this.scanScopeForArrays();
         this.refresh();
+    }
+
+    private async scanScopeForArrays(): Promise<void> {
+        const session = vscode.debug.activeDebugSession;
+        if (!session) {
+            this.scopeArrays.clear();
+            return;
+        }
+
+        try {
+            // Get current frame
+            const frameId = await this.getCurrentFrameId();
+            if (frameId === undefined) {
+                this.scopeArrays.clear();
+                return;
+            }
+
+            // Check if frame changed - if so, clear scope arrays
+            if (this.lastFrameId !== frameId) {
+                this.outputChannel.appendLine(`Frame changed from ${this.lastFrameId} to ${frameId}, clearing scope`);
+                this.scopeArrays.clear();
+                this.lastFrameId = frameId;
+            }
+
+            // Get all variables in the current frame using the 'scopes' request
+            const scopesResponse = await session.customRequest('scopes', { frameId });
+            this.outputChannel.appendLine(`Scopes response: ${JSON.stringify(scopesResponse)}`);
+
+            const scopes = scopesResponse.body?.scopes || scopesResponse.scopes || [];
+
+            // For each scope, get variables
+            for (const scope of scopes) {
+                if (scope.variablesReference) {
+                    const varsResponse = await session.customRequest('variables', {
+                        variablesReference: scope.variablesReference
+                    });
+                    this.outputChannel.appendLine(`Variables in scope "${scope.name}": ${varsResponse.body?.variables?.length || 0}`);
+
+                    const variables = varsResponse.body?.variables || varsResponse.variables || [];
+
+                    // Check each variable to see if it's a supported array type
+                    for (const variable of variables) {
+                        const varType = variable.type || '';
+                        if (this.isSupportedType(varType) && !this.scopeArrays.has(variable.name)) {
+                            this.outputChannel.appendLine(`Found array in scope: ${variable.name} (${varType})`);
+
+                            // Evaluate the array to get full info
+                            const info = await this.evaluateArray(variable.name, variable.name, false);
+                            if (info.isAvailable) {
+                                this.scopeArrays.set(variable.name, info);
+                            }
+                        }
+                    }
+                }
+            }
+
+            this.outputChannel.appendLine(`Total arrays in scope: ${this.scopeArrays.size}`);
+        } catch (error) {
+            this.outputChannel.appendLine(`Error scanning scope: ${error}`);
+        }
+    }
+
+    private async getCurrentFrameId(): Promise<number | undefined> {
+        const session = vscode.debug.activeDebugSession;
+        if (!session) {
+            return undefined;
+        }
+
+        try {
+            const threads = await session.customRequest('threads', {});
+            const threadList = threads.body?.threads || threads.threads;
+            if (threadList && threadList.length > 0) {
+                const threadId = threadList[0].id;
+                const stackTrace = await session.customRequest('stackTrace', {
+                    threadId: threadId,
+                    startFrame: 0,
+                    levels: 1
+                });
+
+                const frames = stackTrace.body?.stackFrames || stackTrace.stackFrames;
+                if (frames && frames.length > 0) {
+                    return frames[0].id;
+                }
+            }
+        } catch (error) {
+            this.outputChannel.appendLine(`Error getting current frame ID: ${error}`);
+        }
+
+        return undefined;
     }
 
     private async evaluateArray(expression: string, name: string, isPinned: boolean): Promise<ArrayInfo> {
@@ -330,14 +469,26 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
 }
 
 export class ArrayInfoItem extends vscode.TreeItem {
+    public readonly isSection: boolean;
+    public readonly sectionType?: string;
+
     constructor(
         public readonly arrayInfo: ArrayInfo,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        isAttribute: boolean = false
+        isAttribute: boolean = false,
+        isSection: boolean = false,
+        sectionType?: string
     ) {
         super(arrayInfo.name, collapsibleState);
 
-        if (isAttribute) {
+        this.isSection = isSection;
+        this.sectionType = sectionType;
+
+        if (isSection) {
+            // Section header
+            this.contextValue = 'section';
+            this.iconPath = new vscode.ThemeIcon('folder');
+        } else if (isAttribute) {
             this.contextValue = 'attribute';
             this.iconPath = new vscode.ThemeIcon('symbol-field');
         } else {
@@ -352,6 +503,25 @@ export class ArrayInfoItem extends vscode.TreeItem {
                 this.tooltip = this.buildTooltip(arrayInfo);
             }
         }
+    }
+
+    static createSection(sectionType: string, label: string): ArrayInfoItem {
+        const dummyInfo: ArrayInfo = {
+            name: label,
+            type: '',
+            shape: null,
+            dtype: null,
+            device: null,
+            isPinned: false,
+            isAvailable: true
+        };
+        return new ArrayInfoItem(
+            dummyInfo,
+            vscode.TreeItemCollapsibleState.Expanded,
+            false,
+            true,
+            sectionType
+        );
     }
 
     private buildTooltip(info: ArrayInfo): string {
