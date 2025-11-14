@@ -52,6 +52,18 @@
         "command": "arrayInspector.toggleInlineOnHighlighted",
         "title": "Toggle Inline on Highlighted",
         "icon": "$(ellipsis)"
+      },
+      {
+        "command": "arrayInspector.copyNumpyCreationOptions",
+        "title": "Copy NumPy Creation Options"
+      },
+      {
+        "command": "arrayInspector.copyJaxCreationOptions",
+        "title": "Copy JAX Creation Options"
+      },
+      {
+        "command": "arrayInspector.copyPytorchCreationOptions",
+        "title": "Copy PyTorch Creation Options"
       }
     ],
     "menus": {
@@ -77,6 +89,21 @@
           "command": "arrayInspector.unpinArray",
           "when": "view == arrayInspectorView && viewItem == pinned",
           "group": "inline"
+        },
+        {
+          "command": "arrayInspector.copyNumpyCreationOptions",
+          "when": "view == arrayInspectorView && viewItem =~ /(unpinned|pinned|highlighted)/",
+          "group": "copy@1"
+        },
+        {
+          "command": "arrayInspector.copyJaxCreationOptions",
+          "when": "view == arrayInspectorView && viewItem =~ /(unpinned|pinned|highlighted)/",
+          "group": "copy@2"
+        },
+        {
+          "command": "arrayInspector.copyPytorchCreationOptions",
+          "when": "view == arrayInspectorView && viewItem =~ /(unpinned|pinned|highlighted)/",
+          "group": "copy@3"
         }
       ]
     },
@@ -101,6 +128,21 @@
             "device"
           ],
           "description": "Attributes to display for arrays"
+        },
+        "arrayInspector.numpyModuleName": {
+          "type": "string",
+          "default": "np",
+          "description": "Module name to use when copying NumPy creation options (e.g., 'np' for 'np.int32')"
+        },
+        "arrayInspector.jaxModuleName": {
+          "type": "string",
+          "default": "jnp",
+          "description": "Module name to use when copying JAX creation options (e.g., 'jnp' for 'jnp.int32')"
+        },
+        "arrayInspector.pytorchModuleName": {
+          "type": "string",
+          "default": "torch",
+          "description": "Module name to use when copying PyTorch creation options (e.g., 'torch' for 'torch.int32')"
         }
       }
     }

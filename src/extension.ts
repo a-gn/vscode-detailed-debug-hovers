@@ -50,6 +50,24 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('arrayInspector.copyNumpyCreationOptions', async (item: ArrayInfoItem) => {
+            await arrayInspectorProvider.copyNumpyCreationOptions(item);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('arrayInspector.copyJaxCreationOptions', async (item: ArrayInfoItem) => {
+            await arrayInspectorProvider.copyJaxCreationOptions(item);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('arrayInspector.copyPytorchCreationOptions', async (item: ArrayInfoItem) => {
+            await arrayInspectorProvider.copyPytorchCreationOptions(item);
+        })
+    );
+
     // Listen to mouse hover events
     context.subscriptions.push(
         vscode.window.onDidChangeTextEditorSelection(handleSelectionChange)

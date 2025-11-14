@@ -451,6 +451,133 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         this.refresh();
     }
 
+    async copyNumpyCreationOptions(item: ArrayInfoItem): Promise<void> {
+        const info = item.arrayInfo;
+        if (!info.isAvailable) {
+            vscode.window.showWarningMessage('Array is not available in current scope');
+            return;
+        }
+
+        const config = vscode.workspace.getConfiguration('arrayInspector');
+        const moduleName = config.get<string>('numpyModuleName', 'np');
+
+        const parts: string[] = [];
+        if (info.shape !== null) {
+            parts.push(`shape=${info.shape}`);
+        }
+        if (info.dtype !== null) {
+            const dtype = this.convertDtypeToNumpy(info.dtype);
+            parts.push(`dtype=${moduleName}.${dtype}`);
+        }
+
+        const creationOptions = parts.join(', ');
+        await vscode.env.clipboard.writeText(creationOptions);
+        vscode.window.showInformationMessage(`Copied NumPy creation options: ${creationOptions}`);
+    }
+
+    async copyJaxCreationOptions(item: ArrayInfoItem): Promise<void> {
+        const info = item.arrayInfo;
+        if (!info.isAvailable) {
+            vscode.window.showWarningMessage('Array is not available in current scope');
+            return;
+        }
+
+        const config = vscode.workspace.getConfiguration('arrayInspector');
+        const moduleName = config.get<string>('jaxModuleName', 'jnp');
+
+        const parts: string[] = [];
+        if (info.shape !== null) {
+            parts.push(`shape=${info.shape}`);
+        }
+        if (info.dtype !== null) {
+            const dtype = this.convertDtypeToJax(info.dtype);
+            parts.push(`dtype=${moduleName}.${dtype}`);
+        }
+        if (info.device !== null) {
+            const device = this.convertDeviceToJax(info.device);
+            parts.push(`device=${device}`);
+        }
+
+        const creationOptions = parts.join(', ');
+        await vscode.env.clipboard.writeText(creationOptions);
+        vscode.window.showInformationMessage(`Copied JAX creation options: ${creationOptions}`);
+    }
+
+    async copyPytorchCreationOptions(item: ArrayInfoItem): Promise<void> {
+        const info = item.arrayInfo;
+        if (!info.isAvailable) {
+            vscode.window.showWarningMessage('Array is not available in current scope');
+            return;
+        }
+
+        const config = vscode.workspace.getConfiguration('arrayInspector');
+        const moduleName = config.get<string>('pytorchModuleName', 'torch');
+
+        const parts: string[] = [];
+        if (info.shape !== null) {
+            parts.push(`size=${info.shape}`);
+        }
+        if (info.dtype !== null) {
+            const dtype = this.convertDtypeToPytorch(info.dtype);
+            parts.push(`dtype=${moduleName}.${dtype}`);
+        }
+        if (info.device !== null) {
+            const device = this.convertDeviceToPytorch(info.device, moduleName);
+            parts.push(`device=${device}`);
+        }
+
+        const creationOptions = parts.join(', ');
+        await vscode.env.clipboard.writeText(creationOptions);
+        vscode.window.showInformationMessage(`Copied PyTorch creation options: ${creationOptions}`);
+    }
+
+    private convertDtypeToNumpy(dtype: string): string {
+        // dtype is already formatted in our display (e.g., "int32", "float64")
+        // NumPy uses np.int32, np.float64, etc.
+        return dtype;
+    }
+
+    private convertDtypeToJax(dtype: string): string {
+        // JAX uses jnp.int32, jnp.float64, etc. - same as NumPy
+        return dtype;
+    }
+
+    private convertDtypeToPytorch(dtype: string): string {
+        // PyTorch dtypes: torch.int32, torch.float64, etc.
+        // But PyTorch also has torch.int64 (not torch.long in dtype specification)
+        return dtype;
+    }
+
+    private convertDeviceToJax(device: string): string {
+        // JAX device format: jax.devices('cpu')[0], jax.devices('gpu')[0], etc.
+        // The device string might be like "cpu:0" or "gpu:0"
+        if (device.toLowerCase().includes('cpu')) {
+            return "jax.devices('cpu')[0]";
+        } else if (device.toLowerCase().includes('gpu') || device.toLowerCase().includes('cuda')) {
+            return "jax.devices('gpu')[0]";
+        }
+        // Default to the device string as-is if we don't recognize it
+        return `jax.devices()[0]`;
+    }
+
+    private convertDeviceToPytorch(device: string, moduleName: string): string {
+        // PyTorch device format: torch.device('cpu'), torch.device('cuda:0'), etc.
+        // The device string might be like "cpu" or "cuda:0"
+        if (device.toLowerCase().includes('cpu')) {
+            return `${moduleName}.device('cpu')`;
+        } else if (device.toLowerCase().includes('cuda')) {
+            // Extract device number if present
+            const match = device.match(/cuda:?(\d+)?/i);
+            if (match) {
+                const deviceNum = match[1] || '0';
+                return `${moduleName}.device('cuda:${deviceNum}')`;
+            }
+            return `${moduleName}.device('cuda')`;
+        }
+        // Default: wrap the device string
+        return `${moduleName}.device('${device}')`;
+    }
+
     private async updateAllArrays(): Promise<void> {
         // Scan scope and refresh view
         await this.scanScopeForArrays();
