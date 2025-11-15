@@ -50,16 +50,21 @@ Arrays out of scope → Removed from panel automatically
 **Responsibilities**:
 - Activate extension and register providers
 - Listen to `onDidChangeTextEditorSelection` events (when cursor moves)
-- Detect variable names at cursor position
+- Detect variable names and attribute chains at cursor position
 - Filter out Python keywords
 - Delegate to ArrayInspectorProvider
 
 **Key Functions**:
 - `activate()`: Sets up extension, creates output channel for logging
 - `handleSelectionChange()`: Fires when user clicks/moves cursor
-- `detectHoveredVariable()`: Extracts word at cursor position, clears highlighted when moving away
+- `detectHoveredVariable()`: Extracts word or attribute chain at cursor position, clears highlighted when moving away
 
-**Important Detail**: Uses `onDidChangeTextEditorSelection`, NOT true hover events. User must **click** or use **arrow keys** to move cursor onto variable.
+**Supported Expressions**:
+- Simple variable names: `arr1`, `my_array`
+- Single-level attribute access: `obj.array`, `data.tensor`
+- Multi-level attribute access: `obj.nested.array`, `model.layer.weights`
+
+**Important Detail**: Uses `onDidChangeTextEditorSelection`, NOT true hover events. User must **click** or use **arrow keys** to move cursor onto variable or attribute chain.
 
 #### 2. `src/arrayInspector.ts` - Tree View Provider
 
@@ -405,7 +410,10 @@ print(arr.shape)           # Click on 'arr' when paused
 2. **The Array Inspector panel automatically opens** in the Debug tab (below the Watch panel)
 3. **Set a breakpoint AFTER the line where arrays are created** (e.g., if `arr1 = np.zeros(...)` is on line 17, set breakpoint on line 18)
 4. **Wait for debugger to pause** at the breakpoint
-5. **Click on an array variable name** in the code editor (e.g., click on `arr1` in the line above)
+5. **Click on an array variable name or attribute** in the code editor
+   - Simple variables: click on `arr1`
+   - Object attributes: click on `obj.array` or `data.tensor`
+   - Nested attributes: click on `obj.nested.array` or `model.layer.weights`
 6. **Check the Array Inspector panel** in the Debug tab (should update within 100ms)
 7. **Expand the array item** to see shape, dtype, and device attributes
 8. **Pin arrays** to keep them visible when navigating to different stack frames
@@ -413,6 +421,7 @@ print(arr.shape)           # Click on 'arr' when paused
 **Important**:
 - The extension **only activates when debugging Python**, not other languages
 - Variables must be **already defined** when the debugger pauses. If you set a breakpoint on the line where a variable is created, that variable won't exist yet!
+- **New**: You can now inspect arrays that are attributes of objects, not just simple variables. Click on any part of an attribute chain (e.g., `obj`, `.array`, or anywhere in `obj.array`) to highlight the entire chain.
 
 ### What to Expect
 
@@ -492,13 +501,14 @@ npm test
 
 ### Test Coverage
 
-**All tests pass** ✓ **180 passing** (155ms)
+**All tests pass** ✓ **188 passing** (152ms)
 
-**1. Core Logic Tests** (`src/test/unit.test.ts` - 9 tests):
+**1. Core Logic Tests** (`src/test/unit.test.ts` - 17 tests):
 - Variable name detection logic
 - Python keyword filtering
 - Type matching (exact and substring matching)
-- Attribute expression construction
+- **Attribute chain detection (6 new tests)**: Simple variables, single-level access (obj.array), multi-level access (obj.nested.array), invalid expressions, extraction from text, underscores and numbers
+- Attribute expression construction (including nested expressions)
 - Collapse state detection logic
 
 **2. DAP Communication Tests** (`src/test/dap.test.ts` - 12 tests):
@@ -555,7 +565,7 @@ npm test
 - Attribute item creation
 - Parent section detection and prioritization
 
-**Note**: Total unit tests = 9 + 12 + 35 + 64 + 29 + 31 = **180 tests**
+**Note**: Total unit tests = 17 + 12 + 35 + 64 + 29 + 31 = **188 tests**
 
 **7. Integration Tests** (`src/test/suite/arrayInspector.test.ts`):
 Full VSCode environment required:

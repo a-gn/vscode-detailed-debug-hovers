@@ -122,8 +122,8 @@ function handleSelectionChange(event: vscode.TextEditorSelectionChangeEvent): vo
 }
 
 function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Position): void {
-    // Get the word at the cursor position
-    const wordRange = editor.document.getWordRangeAtPosition(position, /[a-zA-Z_][a-zA-Z0-9_]*/);
+    // Get the word at the cursor position, including attribute chains like obj.array or obj.nested.array
+    const wordRange = editor.document.getWordRangeAtPosition(position, /[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*/);
 
     if (!wordRange) {
         outputChannel.appendLine('No word found at cursor position');

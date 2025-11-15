@@ -126,6 +126,97 @@ suite('Type Matching Logic', () => {
     });
 });
 
+suite('Attribute Chain Detection Logic', () => {
+    // This regex matches attribute access chains: obj, obj.array, obj.nested.array
+    const attributeChainPattern = /[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*/;
+
+    test('Should match simple variable names', () => {
+        const validSimpleNames = ['arr1', 'my_array', '_private', 'x', 'data123'];
+
+        validSimpleNames.forEach(name => {
+            const match = name.match(attributeChainPattern);
+            assert.ok(match !== null, `"${name}" should match`);
+            assert.strictEqual(match![0], name, `Should match entire name "${name}"`);
+        });
+    });
+
+    test('Should match single-level attribute access', () => {
+        const singleLevelAccess = [
+            'obj.array',
+            'data.tensor',
+            'model.weights',
+            '_private.field',
+            'x123.y456'
+        ];
+
+        singleLevelAccess.forEach(expr => {
+            const match = expr.match(attributeChainPattern);
+            assert.ok(match !== null, `"${expr}" should match`);
+            assert.strictEqual(match![0], expr, `Should match entire expression "${expr}"`);
+        });
+    });
+
+    test('Should match multi-level attribute access', () => {
+        const multiLevelAccess = [
+            'obj.nested.array',
+            'model.layer.weights',
+            'data.stats.mean.value',
+            'a.b.c.d.e'
+        ];
+
+        multiLevelAccess.forEach(expr => {
+            const match = expr.match(attributeChainPattern);
+            assert.ok(match !== null, `"${expr}" should match`);
+            assert.strictEqual(match![0], expr, `Should match entire expression "${expr}"`);
+        });
+    });
+
+    test('Should not match invalid expressions', () => {
+        const invalidExpressions = [
+            '123.array',        // starts with number
+            'obj.',             // ends with dot
+            '.array',           // starts with dot
+            'obj..array',       // double dot
+            'obj.123',          // attribute starts with number
+            'obj. array',       // space after dot
+            'obj .array'        // space before dot
+        ];
+
+        invalidExpressions.forEach(expr => {
+            const match = expr.match(attributeChainPattern);
+            const fullMatch = match && match[0] === expr;
+            assert.ok(!fullMatch, `"${expr}" should not fully match (matched: ${match?.[0]})`);
+        });
+    });
+
+    test('Should extract attribute chain from text', () => {
+        // Simulate how VSCode would extract a word at cursor position
+        const text = 'print(obj.nested.array)';
+        const pattern = new RegExp(attributeChainPattern, 'g');
+        const matches = text.match(pattern);
+
+        assert.ok(matches !== null);
+        assert.ok(matches.includes('print'));
+        assert.ok(matches.includes('obj.nested.array'));
+    });
+
+    test('Should handle attribute chains with underscores and numbers', () => {
+        const validChains = [
+            '_obj.array',
+            'obj._array',
+            'obj123.array456',
+            '_private._internal._data',
+            'a1.b2.c3'
+        ];
+
+        validChains.forEach(expr => {
+            const match = expr.match(attributeChainPattern);
+            assert.ok(match !== null, `"${expr}" should match`);
+            assert.strictEqual(match![0], expr, `Should match entire expression "${expr}"`);
+        });
+    });
+});
+
 suite('Attribute Evaluation Logic', () => {
     test('Should have correct default attributes', () => {
         const defaultAttributes = ['shape', 'dtype', 'device'];
@@ -144,6 +235,14 @@ suite('Attribute Evaluation Logic', () => {
         assert.strictEqual(expression, 'arr1.shape');
     });
 
+    test('Should construct nested attribute expressions correctly', () => {
+        const variableName = 'obj.array';
+        const attribute = 'shape';
+        const expression = `${variableName}.${attribute}`;
+
+        assert.strictEqual(expression, 'obj.array.shape');
+    });
+
     test('Should handle multiple attributes', () => {
         const attributes = ['shape', 'dtype', 'device'];
         const variableName = 'my_array';
@@ -154,6 +253,18 @@ suite('Attribute Evaluation Logic', () => {
         assert.ok(expressions.includes('my_array.shape'));
         assert.ok(expressions.includes('my_array.dtype'));
         assert.ok(expressions.includes('my_array.device'));
+    });
+
+    test('Should handle multiple attributes for nested objects', () => {
+        const attributes = ['shape', 'dtype', 'device'];
+        const variableName = 'obj.nested.array';
+
+        const expressions = attributes.map(attr => `${variableName}.${attr}`);
+
+        assert.strictEqual(expressions.length, 3);
+        assert.ok(expressions.includes('obj.nested.array.shape'));
+        assert.ok(expressions.includes('obj.nested.array.dtype'));
+        assert.ok(expressions.includes('obj.nested.array.device'));
     });
 });
 
