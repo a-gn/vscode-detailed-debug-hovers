@@ -4,7 +4,9 @@ This document is written and maintained by AI agents. It's meant to help them ge
 
 ## Project Overview
 
-**Purpose**: A VSCode extension that shows detailed array information (shape, dtype, device) in a sidebar panel during Python debugging sessions. Users can hover/click on array variables to see their properties, and pin arrays to keep them visible across stack frames.
+**Purpose**: A VSCode extension that shows detailed array information (shape, dtype, device) in a panel within the Debug tab during Python debugging sessions. Users can hover/click on array variables to see their properties, and pin arrays to keep them visible across stack frames.
+
+**Activation**: The extension activates **only when debugging Python** (not other languages), and the panel appears inside the Debug tab, positioned just below the Watch panel, and is automatically opened.
 
 **Target Arrays**: JAX arrays (`jax.Array`, `jaxlib.xla_extension.ArrayImpl`), NumPy arrays (`numpy.ndarray`), and PyTorch tensors (`torch.Tensor`)
 
@@ -15,7 +17,7 @@ This document is written and maintained by AI agents. It's meant to help them ge
 ### High-Level Flow
 
 ```
-Debugging starts → Extension activates
+Python debugging starts → Extension activates → Panel opens in Debug tab
     ↓
 Stack frame becomes active → scanScopeForArrays() triggered
     ↓
@@ -308,6 +310,36 @@ When disabled, the highlighted array follows the global display mode setting.
 
 ## Configuration
 
+### Activation
+
+The extension activates **only for Python debugging** via `activationEvents`:
+```json
+"activationEvents": [
+    "onDebugResolve:python",
+    "onDebugResolve:debugpy"
+]
+```
+
+### Panel Location
+
+The Array Inspector panel is located in the **Debug viewContainer** (not the activity bar), appearing within the Debug tab below the Watch panel:
+```json
+"views": {
+    "debug": [
+        {
+            "id": "arrayInspectorView",
+            "name": "Array Inspector",
+            "when": "debugType == 'python' || debugType == 'debugpy'",
+            "visibility": "visible"
+        }
+    ]
+}
+```
+
+The panel automatically opens when a Python debug session starts (see extension.ts line 86-94).
+
+### Array Settings
+
 Located in `package.json` under `contributes.configuration`:
 
 ```json
@@ -356,7 +388,7 @@ print(arr.shape)           # Click on 'arr' when paused
 
 1. **Not true hover**: Uses cursor position, not mouse hover
 2. **Requires click**: User must click on variable or use arrow keys
-3. **Python only**: Only works with Python debuggers (debugpy)
+3. **Python only**: By design, only activates for Python debugging (debugpy). The extension will not activate for other languages.
 4. **Type detection**: Relies on debug adapter providing type info
 5. **Scope limitations**: Variable must be in current frame scope
 
@@ -370,14 +402,17 @@ print(arr.shape)           # Click on 'arr' when paused
 
 ### Basic Usage
 1. **Start debugging** a Python script with arrays (F5)
-2. **Set a breakpoint AFTER the line where arrays are created** (e.g., if `arr1 = np.zeros(...)` is on line 17, set breakpoint on line 18)
-3. **Wait for debugger to pause** at the breakpoint
-4. **Click on an array variable name** in the code editor (e.g., click on `arr1` in the line above)
-5. **Check the Array Inspector panel** in the sidebar (should update within 100ms)
-6. **Expand the array item** to see shape, dtype, and device attributes
-7. **Pin arrays** to keep them visible when navigating to different stack frames
+2. **The Array Inspector panel automatically opens** in the Debug tab (below the Watch panel)
+3. **Set a breakpoint AFTER the line where arrays are created** (e.g., if `arr1 = np.zeros(...)` is on line 17, set breakpoint on line 18)
+4. **Wait for debugger to pause** at the breakpoint
+5. **Click on an array variable name** in the code editor (e.g., click on `arr1` in the line above)
+6. **Check the Array Inspector panel** in the Debug tab (should update within 100ms)
+7. **Expand the array item** to see shape, dtype, and device attributes
+8. **Pin arrays** to keep them visible when navigating to different stack frames
 
-**Important**: Variables must be **already defined** when the debugger pauses. If you set a breakpoint on the line where a variable is created, that variable won't exist yet!
+**Important**:
+- The extension **only activates when debugging Python**, not other languages
+- Variables must be **already defined** when the debugger pauses. If you set a breakpoint on the line where a variable is created, that variable won't exist yet!
 
 ### What to Expect
 

@@ -82,6 +82,16 @@ export function activate(context: vscode.ExtensionContext): void {
             }
         })
     );
+
+    // Automatically reveal the panel when a Python debug session starts
+    context.subscriptions.push(
+        vscode.debug.onDidStartDebugSession((session) => {
+            if (session.type === 'python' || session.type === 'debugpy') {
+                outputChannel.appendLine(`Python debug session started, revealing Array Inspector panel`);
+                treeView.reveal(undefined as any, { select: false, focus: false, expand: false });
+            }
+        })
+    );
 }
 
 function handleSelectionChange(event: vscode.TextEditorSelectionChangeEvent): void {
