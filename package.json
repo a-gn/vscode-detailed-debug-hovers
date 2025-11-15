@@ -11,25 +11,18 @@
     "Debuggers"
   ],
   "activationEvents": [
-    "onDebug"
+    "onDebugResolve:python",
+    "onDebugResolve:debugpy"
   ],
   "main": "./out/extension.js",
   "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "arrayInspector",
-          "title": "Array Inspector",
-          "icon": "$(symbol-array)"
-        }
-      ]
-    },
     "views": {
-      "arrayInspector": [
+      "debug": [
         {
           "id": "arrayInspectorView",
           "name": "Array Inspector",
-          "when": "debugType == 'python' || debugType == 'debugpy'"
+          "when": "debugType == 'python' || debugType == 'debugpy'",
+          "visibility": "visible"
         }
       ]
     },
