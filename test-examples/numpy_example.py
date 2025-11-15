@@ -8,8 +8,14 @@ To test:
 4. Hover over 'arr1', 'arr2', etc. to see them in the Array Inspector
 5. Pin some arrays to keep them visible
 """
+from dataclasses import dataclass
 
 import numpy as np
+
+
+@dataclass
+class NestedArray:
+    a: np.ndarray
 
 
 def main():
@@ -21,6 +27,9 @@ def main():
     # Do some operations
     result = arr1 + arr2[:100, :50, 0]
     mean_value = arr3.mean()
+
+    array_within_object = NestedArray(a=np.zeros((5, 5), dtype=np.uint32))
+    array_within_object.a
 
     # Create different dtypes
     int_array = np.arange(20, dtype=np.int64)
