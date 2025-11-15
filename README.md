@@ -25,8 +25,9 @@ Pinned arrays stay at the top of the Array Inspector and show:
 ## Supported Types
 
 By default, the extension supports:
-- JAX arrays (`jax.Array`, `jaxlib.xla_extension.ArrayImpl`)
+- JAX arrays (objects of type `jax.Array`, `jaxlib.xla_extension.ArrayImpl`)
 - NumPy arrays (`numpy.ndarray`)
+- PyTorch tensors (`torch.Tensor`)
 
 ## Configuration
 
