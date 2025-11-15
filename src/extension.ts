@@ -128,10 +128,11 @@ function handleSelectionChange(event: vscode.TextEditorSelectionChangeEvent): vo
 }
 
 function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Position): void {
-    // Get the word at the cursor position, including attribute chains like obj.array or obj.nested.array
-    const wordRange = editor.document.getWordRangeAtPosition(position, /[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*/);
+    // Use VSCode's native word detection to find the identifier at the cursor position
+    // This matches VSCode's visual word highlighting behavior
+    const identifierRange = editor.document.getWordRangeAtPosition(position);
 
-    if (!wordRange) {
+    if (!identifierRange) {
         outputChannel.appendLine('No word found at cursor position');
         // Clear highlighted if we moved away from a variable
         if (lastHighlightedWord !== undefined) {
@@ -142,15 +143,14 @@ function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Posit
         return;
     }
 
-    const fullWord = editor.document.getText(wordRange);
-    outputChannel.appendLine(`Full match at cursor: "${fullWord}"`);
+    const identifier = editor.document.getText(identifierRange);
+    outputChannel.appendLine(`Identifier at cursor: "${identifier}"`);
 
-    // CRITICAL FIX: Truncate the expression to only include segments up to the cursor position
-    // For example, if cursor is on "arr3" in "arr3.mean()", we should only get "arr3"
-    const cursorOffsetInWord = position.character - wordRange.start.character;
-    const word = truncateAtCursor(fullWord, cursorOffsetInWord);
+    // Build the attribute chain by looking backward from the identifier
+    const line = editor.document.lineAt(position.line).text;
+    const word = buildAttributeChain(line, identifierRange.start.character, identifierRange.end.character);
 
-    outputChannel.appendLine(`Truncated to cursor position: "${word}"`);
+    outputChannel.appendLine(`Full attribute chain: "${word}"`);
 
     // Ignore keywords and common built-ins
     const keywords = new Set([
@@ -185,40 +185,62 @@ function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Posit
 }
 
 /**
- * Truncates an attribute chain expression to only include segments up to the cursor position.
+ * Builds an attribute chain by looking backward from a cursor position.
  *
- * This fixes the bug where clicking on "arr3" in "arr3.mean()" would incorrectly highlight
- * the entire "arr3.mean" chain instead of just "arr3".
+ * This uses VSCode's native word detection to find the identifier at the cursor,
+ * then builds the full attribute chain by looking backward for "identifier." patterns.
+ *
+ * This approach matches VSCode's visual word highlighting behavior, fixing the bug
+ * where clicking on "arr3" in "arr3.mean()" would incorrectly highlight "mean".
  *
  * Examples:
- * - "arr3.mean" with cursor at offset 2 (on "arr3") -> "arr3"
- * - "obj.nested.array" with cursor at offset 4 (on "nested") -> "obj.nested"
- * - "obj.nested.array" with cursor at offset 15 (on "array") -> "obj.nested.array"
+ * - Line "arr3.mean()" with cursor on "arr3" -> "arr3"
+ * - Line "arr3.mean()" with cursor on "mean" -> "arr3.mean"
+ * - Line "obj.nested.array" with cursor on "nested" -> "obj.nested"
+ * - Line "obj.nested.array" with cursor on "array" -> "obj.nested.array"
  *
- * @param expression The full attribute chain expression
- * @param cursorOffset The character offset of the cursor within the expression
- * @returns The truncated expression up to and including the segment containing the cursor
+ * @param line The line of text
+ * @param identifierStart The start position of the identifier at cursor (from VSCode)
+ * @param identifierEnd The end position of the identifier at cursor (from VSCode)
+ * @returns The full attribute chain including any prefix
  */
-function truncateAtCursor(expression: string, cursorOffset: number): string {
-    const segments = expression.split('.');
-    let currentOffset = 0;
+function buildAttributeChain(line: string, identifierStart: number, identifierEnd: number): string {
+    const identifier = line.substring(identifierStart, identifierEnd);
+    let chain = identifier;
+    let pos = identifierStart - 1;
 
-    for (let i = 0; i < segments.length; i++) {
-        const segmentStart = currentOffset;
-        const segmentEnd = currentOffset + segments[i].length;
-
-        // Check if cursor is within this segment
-        if (cursorOffset >= segmentStart && cursorOffset < segmentEnd) {
-            // Return all segments up to and including this one
-            return segments.slice(0, i + 1).join('.');
+    // Build the chain by looking backward for "identifier." patterns
+    while (pos >= 0) {
+        // Skip whitespace
+        while (pos >= 0 && line[pos] === ' ') {
+            pos--;
         }
 
-        // Move past this segment and the dot
-        currentOffset = segmentEnd + 1; // +1 for the dot
+        // Check for a dot
+        if (pos >= 0 && line[pos] === '.') {
+            pos--; // Move before the dot
+
+            // Find the identifier before the dot
+            let identEnd = pos + 1;
+            while (pos >= 0 && /[a-zA-Z0-9_]/.test(line[pos])) {
+                pos--;
+            }
+
+            // Check if we found a valid identifier (must start with letter or underscore)
+            if (pos + 1 < identEnd && /[a-zA-Z_]/.test(line[pos + 1])) {
+                const prevIdentifier = line.substring(pos + 1, identEnd);
+                chain = prevIdentifier + '.' + chain;
+            } else {
+                // Not a valid identifier, stop
+                break;
+            }
+        } else {
+            // Not a dot, stop
+            break;
+        }
     }
 
-    // If we didn't find it (shouldn't happen), return the full expression
-    return expression;
+    return chain;
 }
 
 export function deactivate(): void {

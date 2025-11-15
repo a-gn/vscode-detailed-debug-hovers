@@ -66,7 +66,8 @@ Arrays out of scope → Removed from panel automatically
 
 **Important Details**:
 - Uses `onDidChangeTextEditorSelection`, NOT true hover events. User must **click** or use **arrow keys** to move cursor onto variable or attribute chain.
-- **Cursor-aware truncation**: When clicking on a segment within an attribute chain, only the chain up to that segment is highlighted. For example, clicking on `arr3` in `arr3.mean()` highlights only `arr3`, not `arr3.mean`. This is handled by the `truncateAtCursor()` function.
+- **VSCode-native word detection**: Uses VSCode's built-in `getWordRangeAtPosition()` API (without custom regex) to detect the identifier at the cursor, matching VSCode's visual word highlighting behavior. Then builds the attribute chain backward using the `buildAttributeChain()` function.
+- **Cursor-aware attribute chains**: When clicking on a segment within an attribute chain, only the chain up to that segment is highlighted. For example, clicking on `arr3` in `arr3.mean()` highlights only `arr3`, not `arr3.mean`. Clicking on `aa` in `obj.aa.shape` highlights `obj.aa`, not `obj.aa.shape`.
 
 #### 2. `src/arrayInspector.ts` - Tree View Provider
 
@@ -173,6 +174,27 @@ await session.customRequest('evaluate', {
 - [src/arrayInspector.ts:253-279](src/arrayInspector.ts#L253-L279): Updated `evaluateAttribute()` to accept and use frameId parameter
 - [src/extension.ts:62-77](src/extension.ts#L62-L77): Fixed log spam by silently ignoring non-Python file selection changes
 - Added detailed logging at each step for easier debugging
+
+## Recent Fix: VSCode-Native Word Detection for Attribute Chains
+
+**Problem**: When clicking on a segment in an attribute chain, the wrong expression was being highlighted. For example, clicking on `arr3` in `arr3.mean()` would highlight `arr3.mean`, and positioning the cursor just after `a` in `a.b` would highlight `b` instead of `a`.
+
+**Root Cause**: The custom regex pattern `/[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*/` combined with the `truncateAtCursor()` function tried to match the entire attribute chain and then manually truncate it. This logic didn't match VSCode's native word boundary detection, causing misalignment between what VSCode visually highlighted and what the extension detected.
+
+**Solution**: Replaced the custom approach with VSCode's native word detection:
+1. Use `getWordRangeAtPosition()` WITHOUT custom regex to detect the identifier at the cursor (matches VSCode's visual highlighting)
+2. Implement `buildAttributeChain()` function that looks backward from the detected identifier to build the full attribute chain
+3. This approach ensures the extension's behavior matches exactly what the user sees highlighted in the editor
+
+**Changes Made**:
+- [src/extension.ts:130-185](src/extension.ts#L130-L185): Replaced custom regex-based detection with VSCode-native word detection
+- [src/extension.ts:187-244](src/extension.ts#L187-L244): Replaced `truncateAtCursor()` with `buildAttributeChain()` that builds chains backward
+- [src/test/unit.test.ts:371-527](src/test/unit.test.ts#L371-L527): Added 13 comprehensive tests for VSCode-native word detection, including bug demonstration tests
+
+**Benefits**:
+- Cursor position detection now matches VSCode's visual word highlighting exactly
+- More reliable and maintainable (uses VSCode APIs instead of custom logic)
+- Better handling of edge cases (parentheses, function calls, invalid syntax)
 
 ### Debugging Strategy (if issues persist)
 
@@ -531,15 +553,16 @@ npm test
 
 ### Test Coverage
 
-**All tests pass** ✓ **213 passing** (160ms)
+**All tests pass** ✓ **61 passing** (22ms)
 
-**1. Core Logic Tests** (`src/test/unit.test.ts` - 42 tests):
+**1. Core Logic Tests** (`src/test/unit.test.ts` - 61 tests):
 - Variable name detection logic
 - Python keyword filtering
 - Type matching (exact and substring matching)
 - **Attribute chain detection (6 tests)**: Simple variables, single-level access (obj.array), multi-level access (obj.nested.array), invalid expressions, extraction from text, underscores and numbers
 - Attribute expression construction (including nested expressions)
-- **Cursor-based truncation (7 tests)**: Truncating attribute chains at cursor position, handling multi-level chains, segment boundaries, varying lengths
+- **Cursor-based truncation (7 tests, legacy)**: Truncating attribute chains at cursor position, handling multi-level chains, segment boundaries, varying lengths
+- **VSCode-native word detection (13 tests)**: Using VSCode's built-in word detection with backward chain building, handling nested attributes, edge cases, bug demonstrations for cursor position correctness
 - **Name compression logic (18 tests)**: Single/multi-segment compression, length limits, intelligent truncation rules
 - Collapse state detection logic
 

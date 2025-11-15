@@ -368,6 +368,164 @@ suite('Cursor-based Truncation Logic', () => {
     });
 });
 
+suite('VSCode-native Word Detection with Attribute Chain Building', () => {
+    /**
+     * Builds an attribute chain by looking backward from a cursor position.
+     * This simulates the new approach: use VSCode's native word detection to find
+     * the identifier at the cursor, then build the chain backward.
+     *
+     * @param line The line of text
+     * @param identifierStart The start position of the identifier at cursor (from VSCode)
+     * @param identifierEnd The end position of the identifier at cursor (from VSCode)
+     * @returns The full attribute chain including any prefix
+     */
+    function buildAttributeChain(line: string, identifierStart: number, identifierEnd: number): string {
+        const identifier = line.substring(identifierStart, identifierEnd);
+        let chain = identifier;
+        let pos = identifierStart - 1;
+
+        // Build the chain by looking backward for "identifier." patterns
+        while (pos >= 0) {
+            // Skip whitespace
+            while (pos >= 0 && line[pos] === ' ') {
+                pos--;
+            }
+
+            // Check for a dot
+            if (pos >= 0 && line[pos] === '.') {
+                pos--; // Move before the dot
+
+                // Find the identifier before the dot
+                let identEnd = pos + 1;
+                while (pos >= 0 && /[a-zA-Z0-9_]/.test(line[pos])) {
+                    pos--;
+                }
+
+                // Check if we found a valid identifier (must start with letter or underscore)
+                if (pos + 1 < identEnd && /[a-zA-Z_]/.test(line[pos + 1])) {
+                    const prevIdentifier = line.substring(pos + 1, identEnd);
+                    chain = prevIdentifier + '.' + chain;
+                } else {
+                    // Not a valid identifier, stop
+                    break;
+                }
+            } else {
+                // Not a dot, stop
+                break;
+            }
+        }
+
+        return chain;
+    }
+
+    test('Should detect simple variable without attribute chain', () => {
+        const line = 'arr3.mean()';
+        // VSCode native detection: cursor on "arr3" (positions 0-4)
+        // Identifier is "arr3" at positions 0-4
+        const result = buildAttributeChain(line, 0, 4);
+        assert.strictEqual(result, 'arr3', 'Cursor on "arr3" should detect "arr3"');
+    });
+
+    test('Should detect method call base when cursor is on base identifier', () => {
+        const line = 'arr3.mean()';
+        // When cursor is on "mean" (positions 5-9), VSCode highlights "mean"
+        // We should build backward to include "arr3"
+        const result = buildAttributeChain(line, 5, 9);
+        assert.strictEqual(result, 'arr3.mean', 'Cursor on "mean" should detect "arr3.mean"');
+    });
+
+    test('Should handle nested attribute chains - cursor on first segment', () => {
+        const line = 'array_within_object.aa.shape';
+        // Cursor on "array_within_object" (positions 0-19)
+        const result = buildAttributeChain(line, 0, 19);
+        assert.strictEqual(result, 'array_within_object',
+            'Cursor on first segment should return just that segment');
+    });
+
+    test('Should handle nested attribute chains - cursor on middle segment', () => {
+        const line = 'array_within_object.aa.shape';
+        // Cursor on "aa" (positions 20-22)
+        const result = buildAttributeChain(line, 20, 22);
+        assert.strictEqual(result, 'array_within_object.aa',
+            'Cursor on middle segment should build chain backward');
+    });
+
+    test('Should handle nested attribute chains - cursor on last segment', () => {
+        const line = 'array_within_object.aa.shape';
+        // Cursor on "shape" (positions 23-28)
+        const result = buildAttributeChain(line, 23, 28);
+        assert.strictEqual(result, 'array_within_object.aa.shape',
+            'Cursor on last segment should build full chain');
+    });
+
+    test('Should handle deeply nested chains', () => {
+        const line = 'a.b.c.d.e.f';
+        // Cursor on "d" (position 6-7)
+        const result = buildAttributeChain(line, 6, 7);
+        assert.strictEqual(result, 'a.b.c.d', 'Should build chain up to cursor segment');
+    });
+
+    test('Should handle chain with underscores and numbers', () => {
+        const line = '_private._internal.data123';
+        // Cursor on "data123" (positions 19-26)
+        const result = buildAttributeChain(line, 19, 26);
+        assert.strictEqual(result, '_private._internal.data123',
+            'Should handle underscores and numbers correctly');
+    });
+
+    test('Should stop at non-identifier characters', () => {
+        const line = '(obj.array).shape';
+        // Cursor on "array" (positions 5-10)
+        const result = buildAttributeChain(line, 5, 10);
+        assert.strictEqual(result, 'obj.array',
+            'Should build chain backward until hitting non-identifier');
+    });
+
+    test('Should handle attribute access after function call', () => {
+        const line = 'func().result';
+        // Cursor on "result" (positions 7-13)
+        const result = buildAttributeChain(line, 7, 13);
+        assert.strictEqual(result, 'result',
+            'Should not include function call in chain');
+    });
+
+    test('Should handle spaces around dots (invalid syntax)', () => {
+        const line = 'obj . array';
+        // Cursor on "array" (positions 6-11)
+        const result = buildAttributeChain(line, 6, 11);
+        assert.strictEqual(result, 'array',
+            'Should not build chain across spaces');
+    });
+
+    test('Bug demonstration: cursor at end of segment should highlight that segment', () => {
+        const line = 'a.b.c';
+        // This is the key test case from the user's bug report
+        // When cursor is at position 1 (just after 'a'), VSCode highlights 'a'
+        // VSCode's getWordRangeAtPosition would return range (0, 1) for identifier 'a'
+        const result = buildAttributeChain(line, 0, 1);
+        assert.strictEqual(result, 'a',
+            'Cursor just after "a" should highlight "a", not "b"');
+    });
+
+    test('Bug demonstration: cursor at start of second segment', () => {
+        const line = 'a.b.c';
+        // When cursor is at position 2 (on 'b'), VSCode highlights 'b'
+        // VSCode's getWordRangeAtPosition would return range (2, 3) for identifier 'b'
+        const result = buildAttributeChain(line, 2, 3);
+        assert.strictEqual(result, 'a.b',
+            'Cursor on "b" should highlight "a.b"');
+    });
+
+    test('Bug demonstration: nested object example', () => {
+        const line = 'array_within_object.bb.aa';
+        // When cursor is at position 22 (on second 'b' of 'bb'), VSCode highlights 'bb'
+        // VSCode's getWordRangeAtPosition would return range (20, 22) for identifier 'bb'
+        const result = buildAttributeChain(line, 20, 22);
+        assert.strictEqual(result, 'array_within_object.bb',
+            'Cursor on "bb" should highlight "array_within_object.bb"');
+    });
+});
+
 suite('Name Compression Logic', () => {
     // Replicate the compression logic for testing (without vscode dependencies)
     function compressName(name: string, maxLength: number): string {
