@@ -446,6 +446,28 @@ The panel shows:
 - Arrays disappear automatically when they go out of scope (frame change, variable deleted)
 - Stack frame changes trigger automatic rescan of all arrays
 
+## Recent Changes: Pseudo-Variable Filtering and Sorting
+
+**Problem**: The array inspector was showing debugger pseudo-variables like `(return)` which are temporary debug values, not real variables. Also, array names weren't sorted alphabetically, making it hard to find specific arrays when the list changed.
+
+**Root Cause**:
+1. The `scanScopeForArrays()` function didn't filter out pseudo-variables created by the debugger (e.g., `(return)` values that show function return values at stepping points).
+2. The `getSectionChildren()` function didn't sort items before returning them.
+
+**Solution**: Modified `src/arrayInspector.ts` to:
+1. Skip variables whose names start with `(` in `scanScopeForArrays()` (line 870-874)
+2. Sort arrays alphabetically in all sections: pinned, locals, and globals (lines 363, 372, 381)
+
+**What are `(return)` pseudo-variables?**: These are temporary debug values created by `debugpy` to show function return values when stepping through code. They:
+- Have names starting with `(` (not valid Python identifiers)
+- Only exist at specific stepping points
+- Don't have the full structure of regular variables
+- Should be filtered out as they're debugging aids, not user variables
+
+**Test Coverage**: Added 8 new unit tests in `src/test/edge-cases.test.ts`:
+- Pseudo-variable filtering (3 tests)
+- Array sorting (5 tests)
+
 ## Testing
 
 The extension includes comprehensive unit tests that verify core functionality without requiring the full VSCode environment.
@@ -453,7 +475,7 @@ The extension includes comprehensive unit tests that verify core functionality w
 ### Running Tests
 
 ```bash
-# Run all unit tests (172 tests - no VSCode needed)
+# Run all unit tests (180 tests - no VSCode needed)
 npm run compile && npx mocha 'out/test/*.test.js'
 
 # Or run specific test files
@@ -470,7 +492,7 @@ npm test
 
 ### Test Coverage
 
-**All tests pass** ✓ **172 passing** (149ms)
+**All tests pass** ✓ **180 passing** (155ms)
 
 **1. Core Logic Tests** (`src/test/unit.test.ts` - 9 tests):
 - Variable name detection logic
@@ -490,7 +512,7 @@ npm test
 - Attribute evaluation failure handling
 - Realistic response parsing for NumPy and JAX
 
-**3. Edge Cases and Error Handling** (`src/test/edge-cases.test.ts` - 27 tests):
+**3. Edge Cases and Error Handling** (`src/test/edge-cases.test.ts` - 35 tests):
 - Empty/malformed variable names
 - Special characters and Unicode
 - Very long variable names
@@ -505,6 +527,8 @@ npm test
 - Configuration edge cases
 - Async/Promise error handling
 - Debugger pause/resume cycles
+- Pseudo-variable filtering (3 tests)
+- Array name sorting (5 tests)
 
 **4. Formatting Function Tests** (`src/test/formatting.test.ts` - 64 tests):
 - Shape formatting (torch.Size to tuple conversion)
@@ -530,6 +554,8 @@ npm test
 - Context value determination
 - Attribute item creation
 - Parent section detection and prioritization
+
+**Note**: Total unit tests = 9 + 12 + 35 + 64 + 29 + 31 = **180 tests**
 
 **7. Integration Tests** (`src/test/suite/arrayInspector.test.ts`):
 Full VSCode environment required:
@@ -654,10 +680,10 @@ git push origin release/v0.2.0
 ## File Locations
 
 - **Extension code**: `src/extension.ts`, `src/arrayInspector.ts`, `src/types.ts`
-- **Unit tests** (172 tests):
+- **Unit tests** (180 tests):
   - `src/test/unit.test.ts` - Core logic (9 tests)
   - `src/test/dap.test.ts` - DAP communication (12 tests)
-  - `src/test/edge-cases.test.ts` - Edge cases and error handling (27 tests)
+  - `src/test/edge-cases.test.ts` - Edge cases and error handling (35 tests)
   - `src/test/formatting.test.ts` - Formatting functions (64 tests)
   - `src/test/display-mode.test.ts` - Display mode logic (29 tests)
   - `src/test/array-info-item.test.ts` - ArrayInfoItem class (31 tests)

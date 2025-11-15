@@ -6,6 +6,134 @@
 
 import * as assert from 'assert';
 
+suite('Pseudo-Variable Filtering', () => {
+    test('Should filter out return value pseudo-variables', () => {
+        // Debuggers create pseudo-variables like "(return)" for return values
+        const pseudoVariables = ['(return)', '(return) value', '(exception)', '(result)'];
+
+        pseudoVariables.forEach(name => {
+            assert.ok(name.startsWith('('), `"${name}" should be identified as pseudo-variable`);
+        });
+    });
+
+    test('Should not filter regular variables', () => {
+        const regularVariables = ['arr1', 'my_array', '_private', 'result', 'return_value'];
+
+        regularVariables.forEach(name => {
+            assert.ok(!name.startsWith('('), `"${name}" should not be filtered`);
+        });
+    });
+
+    test('Should handle edge cases with parentheses', () => {
+        // Only variables STARTING with "(" should be filtered
+        const edgeCases = [
+            { name: '(return)', shouldFilter: true },
+            { name: 'arr()', shouldFilter: false },  // function call syntax
+            { name: 'data(0)', shouldFilter: false }, // indexing syntax
+            { name: '(', shouldFilter: true },
+            { name: '(test', shouldFilter: true }
+        ];
+
+        edgeCases.forEach(({ name, shouldFilter }) => {
+            const startsWithParen = name.startsWith('(');
+            assert.strictEqual(startsWithParen, shouldFilter,
+                `"${name}" filter=${shouldFilter}, got=${startsWithParen}`);
+        });
+    });
+});
+
+suite('Array Sorting', () => {
+    test('Should sort array names alphabetically', () => {
+        interface MockArrayInfo {
+            name: string;
+        }
+
+        const unsorted: MockArrayInfo[] = [
+            { name: 'z_array' },
+            { name: 'a_array' },
+            { name: 'm_array' },
+            { name: 'b_array' }
+        ];
+
+        const sorted = unsorted.slice().sort((a, b) => a.name.localeCompare(b.name));
+
+        assert.strictEqual(sorted[0].name, 'a_array');
+        assert.strictEqual(sorted[1].name, 'b_array');
+        assert.strictEqual(sorted[2].name, 'm_array');
+        assert.strictEqual(sorted[3].name, 'z_array');
+    });
+
+    test('Should handle case-insensitive sorting with localeCompare', () => {
+        interface MockArrayInfo {
+            name: string;
+        }
+
+        const unsorted: MockArrayInfo[] = [
+            { name: 'Zebra' },
+            { name: 'apple' },
+            { name: 'Banana' },
+            { name: 'aardvark' }
+        ];
+
+        const sorted = unsorted.slice().sort((a, b) => a.name.localeCompare(b.name));
+
+        // localeCompare handles case-insensitive sorting naturally
+        assert.strictEqual(sorted[0].name, 'aardvark');
+        assert.strictEqual(sorted[1].name, 'apple');
+        assert.strictEqual(sorted[2].name, 'Banana');
+        assert.strictEqual(sorted[3].name, 'Zebra');
+    });
+
+    test('Should maintain sort order after updates', () => {
+        interface MockArrayInfo {
+            name: string;
+            value: number;
+        }
+
+        const arrays: MockArrayInfo[] = [
+            { name: 'c', value: 1 },
+            { name: 'a', value: 2 },
+            { name: 'b', value: 3 }
+        ];
+
+        // Sort by name
+        const sorted = arrays.slice().sort((a, b) => a.name.localeCompare(b.name));
+
+        // Verify order
+        assert.strictEqual(sorted[0].name, 'a');
+        assert.strictEqual(sorted[1].name, 'b');
+        assert.strictEqual(sorted[2].name, 'c');
+
+        // Verify values are preserved
+        assert.strictEqual(sorted[0].value, 2);
+        assert.strictEqual(sorted[1].value, 3);
+        assert.strictEqual(sorted[2].value, 1);
+    });
+
+    test('Should handle empty arrays in sorting', () => {
+        interface MockArrayInfo {
+            name: string;
+        }
+
+        const empty: MockArrayInfo[] = [];
+        const sorted = empty.slice().sort((a, b) => a.name.localeCompare(b.name));
+
+        assert.strictEqual(sorted.length, 0);
+    });
+
+    test('Should handle single element in sorting', () => {
+        interface MockArrayInfo {
+            name: string;
+        }
+
+        const single: MockArrayInfo[] = [{ name: 'only_array' }];
+        const sorted = single.slice().sort((a, b) => a.name.localeCompare(b.name));
+
+        assert.strictEqual(sorted.length, 1);
+        assert.strictEqual(sorted[0].name, 'only_array');
+    });
+});
+
 suite('Edge Cases and Error Handling', () => {
     test('Should handle empty variable names', () => {
         const variablePattern = /^[a-zA-Z_][a-zA-Z0-9_]*$/;

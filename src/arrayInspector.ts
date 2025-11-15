@@ -359,6 +359,8 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
                     items.push(new ArrayInfoItem(unavailableInfo, collapsibleState, this.displayMode));
                 }
             }
+            // Sort pinned arrays by name
+            items.sort((a, b) => a.arrayInfo.name.localeCompare(b.arrayInfo.name));
         } else if (sectionType === 'locals') {
             for (const [, info] of this.localsArrays) {
                 if (info.isAvailable) {
@@ -366,6 +368,8 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
                     items.push(new ArrayInfoItem(info, collapsibleState, this.displayMode));
                 }
             }
+            // Sort locals arrays by name
+            items.sort((a, b) => a.arrayInfo.name.localeCompare(b.arrayInfo.name));
         } else if (sectionType === 'globals') {
             for (const [, info] of this.globalsArrays) {
                 if (info.isAvailable) {
@@ -373,6 +377,8 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
                     items.push(new ArrayInfoItem(info, collapsibleState, this.displayMode));
                 }
             }
+            // Sort globals arrays by name
+            items.sort((a, b) => a.arrayInfo.name.localeCompare(b.arrayInfo.name));
         }
 
         return items;
@@ -866,6 +872,12 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
 
                 // Log each variable we're examining
                 this.outputChannel.appendLine(`  Variable in "${scope.name}": name="${varName}", type="${varType}"`);
+
+                // Skip pseudo-variables like "(return)" which are debugger-generated temporary values
+                if (varName.startsWith('(')) {
+                    this.outputChannel.appendLine(`  → Skipping pseudo-variable: ${varName}`);
+                    continue;
+                }
 
                 if (this.isSupportedType(varType) && !targetMap.has(variable.name)) {
                     this.outputChannel.appendLine(`  → Matched! Getting attributes for: ${variable.name}`);
