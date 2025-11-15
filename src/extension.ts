@@ -129,11 +129,9 @@ function handleSelectionChange(event: vscode.TextEditorSelectionChangeEvent): vo
 
 function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Position): void {
     // Use VSCode's native word detection to find the identifier at the cursor position
-    // This matches VSCode's visual word highlighting behavior
     const identifierRange = editor.document.getWordRangeAtPosition(position);
 
     if (!identifierRange) {
-        outputChannel.appendLine('No word found at cursor position');
         // Clear highlighted if we moved away from a variable
         if (lastHighlightedWord !== undefined) {
             outputChannel.appendLine('Clearing highlighted array (no word at cursor)');
@@ -146,11 +144,26 @@ function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Posit
     const identifier = editor.document.getText(identifierRange);
     outputChannel.appendLine(`Identifier at cursor: "${identifier}"`);
 
-    // Build the attribute chain by looking backward from the identifier
-    const line = editor.document.lineAt(position.line).text;
-    const word = buildAttributeChain(line, identifierRange.start.character, identifierRange.end.character);
+    // Get the full attribute chain (if any) using the attribute chain regex
+    const attributeChainPattern = /[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*/;
+    const fullChainRange = editor.document.getWordRangeAtPosition(position, attributeChainPattern);
 
-    outputChannel.appendLine(`Full attribute chain: "${word}"`);
+    let word: string;
+
+    if (!fullChainRange) {
+        // No attribute chain, just use the identifier
+        word = identifier;
+    } else {
+        // We have a full chain, cut it at the highlighted identifier's end position
+        const fullChain = editor.document.getText(fullChainRange);
+        outputChannel.appendLine(`Full chain: "${fullChain}"`);
+
+        // Calculate where to cut the chain based on the highlighted identifier's end position
+        const cutOffset = identifierRange.end.character - fullChainRange.start.character;
+        word = fullChain.substring(0, cutOffset);
+    }
+
+    outputChannel.appendLine(`Final word: "${word}"`);
 
     // Ignore keywords and common built-ins
     const keywords = new Set([
@@ -182,65 +195,6 @@ function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Posit
     lastHighlightedWord = word;
     // Handle the hover
     arrayInspectorProvider.handleHover(word);
-}
-
-/**
- * Builds an attribute chain by looking backward from a cursor position.
- *
- * This uses VSCode's native word detection to find the identifier at the cursor,
- * then builds the full attribute chain by looking backward for "identifier." patterns.
- *
- * This approach matches VSCode's visual word highlighting behavior, fixing the bug
- * where clicking on "arr3" in "arr3.mean()" would incorrectly highlight "mean".
- *
- * Examples:
- * - Line "arr3.mean()" with cursor on "arr3" -> "arr3"
- * - Line "arr3.mean()" with cursor on "mean" -> "arr3.mean"
- * - Line "obj.nested.array" with cursor on "nested" -> "obj.nested"
- * - Line "obj.nested.array" with cursor on "array" -> "obj.nested.array"
- *
- * @param line The line of text
- * @param identifierStart The start position of the identifier at cursor (from VSCode)
- * @param identifierEnd The end position of the identifier at cursor (from VSCode)
- * @returns The full attribute chain including any prefix
- */
-function buildAttributeChain(line: string, identifierStart: number, identifierEnd: number): string {
-    const identifier = line.substring(identifierStart, identifierEnd);
-    let chain = identifier;
-    let pos = identifierStart - 1;
-
-    // Build the chain by looking backward for "identifier." patterns
-    while (pos >= 0) {
-        // Skip whitespace
-        while (pos >= 0 && line[pos] === ' ') {
-            pos--;
-        }
-
-        // Check for a dot
-        if (pos >= 0 && line[pos] === '.') {
-            pos--; // Move before the dot
-
-            // Find the identifier before the dot
-            let identEnd = pos + 1;
-            while (pos >= 0 && /[a-zA-Z0-9_]/.test(line[pos])) {
-                pos--;
-            }
-
-            // Check if we found a valid identifier (must start with letter or underscore)
-            if (pos + 1 < identEnd && /[a-zA-Z_]/.test(line[pos + 1])) {
-                const prevIdentifier = line.substring(pos + 1, identEnd);
-                chain = prevIdentifier + '.' + chain;
-            } else {
-                // Not a valid identifier, stop
-                break;
-            }
-        } else {
-            // Not a dot, stop
-            break;
-        }
-    }
-
-    return chain;
 }
 
 export function deactivate(): void {

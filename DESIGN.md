@@ -66,7 +66,7 @@ Arrays out of scope → Removed from panel automatically
 
 **Important Details**:
 - Uses `onDidChangeTextEditorSelection`, NOT true hover events. User must **click** or use **arrow keys** to move cursor onto variable or attribute chain.
-- **VSCode-native word detection**: Uses VSCode's built-in `getWordRangeAtPosition()` API (without custom regex) to detect the identifier at the cursor, matching VSCode's visual word highlighting behavior. Then builds the attribute chain backward using the `buildAttributeChain()` function.
+- **VSCode-native word detection with position-based cutting**: Uses VSCode's built-in `getWordRangeAtPosition()` API (without custom regex) to detect the identifier at the cursor, then uses the same API with attribute chain regex to find the full chain, and cuts it at the identifier's end position using simple substring math.
 - **Cursor-aware attribute chains**: When clicking on a segment within an attribute chain, only the chain up to that segment is highlighted. For example, clicking on `arr3` in `arr3.mean()` highlights only `arr3`, not `arr3.mean`. Clicking on `aa` in `obj.aa.shape` highlights `obj.aa`, not `obj.aa.shape`.
 
 #### 2. `src/arrayInspector.ts` - Tree View Provider
@@ -181,19 +181,22 @@ await session.customRequest('evaluate', {
 
 **Root Cause**: The custom regex pattern `/[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*/` combined with the `truncateAtCursor()` function tried to match the entire attribute chain and then manually truncate it. This logic didn't match VSCode's native word boundary detection, causing misalignment between what VSCode visually highlighted and what the extension detected.
 
-**Solution**: Replaced the custom approach with VSCode's native word detection:
+**Solution**: Replaced the custom approach with position-based cutting using VSCode's native APIs:
 1. Use `getWordRangeAtPosition()` WITHOUT custom regex to detect the identifier at the cursor (matches VSCode's visual highlighting)
-2. Implement `buildAttributeChain()` function that looks backward from the detected identifier to build the full attribute chain
-3. This approach ensures the extension's behavior matches exactly what the user sees highlighted in the editor
+2. Use `getWordRangeAtPosition()` WITH attribute chain regex to find the full chain containing that identifier
+3. Cut the full chain at the identifier's end position using simple substring math
+4. This approach ensures the extension's behavior matches exactly what the user sees highlighted in the editor
 
 **Changes Made**:
-- [src/extension.ts:130-185](src/extension.ts#L130-L185): Replaced custom regex-based detection with VSCode-native word detection
-- [src/extension.ts:187-244](src/extension.ts#L187-L244): Replaced `truncateAtCursor()` with `buildAttributeChain()` that builds chains backward
-- [src/test/unit.test.ts:371-527](src/test/unit.test.ts#L371-L527): Added 13 comprehensive tests for VSCode-native word detection, including bug demonstration tests
+- [src/extension.ts:130-198](src/extension.ts#L130-L198): Replaced custom regex-based detection with position-based cutting
+- Removed old `buildAttributeChain()` looping function - no longer needed
+- [src/test/unit.test.ts:371-407](src/test/unit.test.ts#L371-L407): Updated test helper to use position-based cutting instead of backward looping
+- [src/test/unit.test.ts:409-527](src/test/unit.test.ts#L409-L527): All 13 tests pass with new implementation
 
 **Benefits**:
 - Cursor position detection now matches VSCode's visual word highlighting exactly
-- More reliable and maintainable (uses VSCode APIs instead of custom logic)
+- Much simpler implementation - no manual looping over text
+- More reliable and maintainable (uses VSCode APIs and simple position math)
 - Better handling of edge cases (parentheses, function calls, invalid syntax)
 
 ### Debugging Strategy (if issues persist)

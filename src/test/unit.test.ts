@@ -370,9 +370,10 @@ suite('Cursor-based Truncation Logic', () => {
 
 suite('VSCode-native Word Detection with Attribute Chain Building', () => {
     /**
-     * Builds an attribute chain by looking backward from a cursor position.
+     * Builds an attribute chain using position-based cutting.
      * This simulates the new approach: use VSCode's native word detection to find
-     * the identifier at the cursor, then build the chain backward.
+     * the identifier at the cursor, then use regex to find the full chain and cut it
+     * at the identifier's end position.
      *
      * @param line The line of text
      * @param identifierStart The start position of the identifier at cursor (from VSCode)
@@ -381,41 +382,28 @@ suite('VSCode-native Word Detection with Attribute Chain Building', () => {
      */
     function buildAttributeChain(line: string, identifierStart: number, identifierEnd: number): string {
         const identifier = line.substring(identifierStart, identifierEnd);
-        let chain = identifier;
-        let pos = identifierStart - 1;
 
-        // Build the chain by looking backward for "identifier." patterns
-        while (pos >= 0) {
-            // Skip whitespace
-            while (pos >= 0 && line[pos] === ' ') {
-                pos--;
-            }
+        // Simulate VSCode's getWordRangeAtPosition with attribute chain regex
+        // Find the full attribute chain containing this identifier
+        const attributeChainPattern = /[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*/g;
 
-            // Check for a dot
-            if (pos >= 0 && line[pos] === '.') {
-                pos--; // Move before the dot
+        let match;
+        while ((match = attributeChainPattern.exec(line)) !== null) {
+            const matchStart = match.index;
+            const matchEnd = match.index + match[0].length;
 
-                // Find the identifier before the dot
-                let identEnd = pos + 1;
-                while (pos >= 0 && /[a-zA-Z0-9_]/.test(line[pos])) {
-                    pos--;
-                }
-
-                // Check if we found a valid identifier (must start with letter or underscore)
-                if (pos + 1 < identEnd && /[a-zA-Z_]/.test(line[pos + 1])) {
-                    const prevIdentifier = line.substring(pos + 1, identEnd);
-                    chain = prevIdentifier + '.' + chain;
-                } else {
-                    // Not a valid identifier, stop
-                    break;
-                }
-            } else {
-                // Not a dot, stop
-                break;
+            // Check if the identifier is within this match
+            if (identifierStart >= matchStart && identifierEnd <= matchEnd) {
+                // Found the full chain containing our identifier
+                const fullChain = match[0];
+                // Cut at the identifier's end position
+                const cutOffset = identifierEnd - matchStart;
+                return fullChain.substring(0, cutOffset);
             }
         }
 
-        return chain;
+        // No chain found, return just the identifier
+        return identifier;
     }
 
     test('Should detect simple variable without attribute chain', () => {
