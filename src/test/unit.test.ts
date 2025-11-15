@@ -268,6 +268,106 @@ suite('Attribute Evaluation Logic', () => {
     });
 });
 
+suite('Cursor-based Truncation Logic', () => {
+    // Replicate the truncateAtCursor logic for testing
+    function truncateAtCursor(expression: string, cursorOffset: number): string {
+        const segments = expression.split('.');
+        let currentOffset = 0;
+
+        for (let i = 0; i < segments.length; i++) {
+            const segmentStart = currentOffset;
+            const segmentEnd = currentOffset + segments[i].length;
+
+            // Check if cursor is within this segment
+            if (cursorOffset >= segmentStart && cursorOffset < segmentEnd) {
+                // Return all segments up to and including this one
+                return segments.slice(0, i + 1).join('.');
+            }
+
+            // Move past this segment and the dot
+            currentOffset = segmentEnd + 1; // +1 for the dot
+        }
+
+        // If we didn't find it (shouldn't happen), return the full expression
+        return expression;
+    }
+
+    test('Should truncate "arr3.mean" when cursor is on "arr3"', () => {
+        // Cursor at offset 0 (start of "arr3")
+        assert.strictEqual(truncateAtCursor('arr3.mean', 0), 'arr3');
+        // Cursor at offset 2 (middle of "arr3")
+        assert.strictEqual(truncateAtCursor('arr3.mean', 2), 'arr3');
+        // Cursor at offset 3 (end of "arr3")
+        assert.strictEqual(truncateAtCursor('arr3.mean', 3), 'arr3');
+    });
+
+    test('Should return full expression when cursor is on last segment', () => {
+        // Cursor at offset 5 (start of "mean" after dot)
+        assert.strictEqual(truncateAtCursor('arr3.mean', 5), 'arr3.mean');
+        // Cursor at offset 7 (middle of "mean")
+        assert.strictEqual(truncateAtCursor('arr3.mean', 7), 'arr3.mean');
+    });
+
+    test('Should truncate multi-level chains correctly', () => {
+        const expr = 'obj.nested.array';
+        // Cursor on "obj" (offset 0-2)
+        assert.strictEqual(truncateAtCursor(expr, 0), 'obj');
+        assert.strictEqual(truncateAtCursor(expr, 2), 'obj');
+
+        // Cursor on "nested" (offset 4-9)
+        assert.strictEqual(truncateAtCursor(expr, 4), 'obj.nested');
+        assert.strictEqual(truncateAtCursor(expr, 7), 'obj.nested');
+
+        // Cursor on "array" (offset 11-15)
+        assert.strictEqual(truncateAtCursor(expr, 11), 'obj.nested.array');
+        assert.strictEqual(truncateAtCursor(expr, 15), 'obj.nested.array');
+    });
+
+    test('Should handle single-segment expressions', () => {
+        assert.strictEqual(truncateAtCursor('arr1', 0), 'arr1');
+        assert.strictEqual(truncateAtCursor('arr1', 2), 'arr1');
+        assert.strictEqual(truncateAtCursor('arr1', 3), 'arr1');
+    });
+
+    test('Should handle long attribute chains', () => {
+        const expr = 'a.b.c.d.e';
+        // Cursor on "a"
+        assert.strictEqual(truncateAtCursor(expr, 0), 'a');
+        // Cursor on "b" (offset 2)
+        assert.strictEqual(truncateAtCursor(expr, 2), 'a.b');
+        // Cursor on "c" (offset 4)
+        assert.strictEqual(truncateAtCursor(expr, 4), 'a.b.c');
+        // Cursor on "d" (offset 6)
+        assert.strictEqual(truncateAtCursor(expr, 6), 'a.b.c.d');
+        // Cursor on "e" (offset 8)
+        assert.strictEqual(truncateAtCursor(expr, 8), 'a.b.c.d.e');
+    });
+
+    test('Should handle segments of varying lengths', () => {
+        const expr = 'short.very_long_segment.x';
+        // Cursor on "short"
+        assert.strictEqual(truncateAtCursor(expr, 0), 'short');
+        assert.strictEqual(truncateAtCursor(expr, 4), 'short');
+        // Cursor on "very_long_segment"
+        assert.strictEqual(truncateAtCursor(expr, 6), 'short.very_long_segment');
+        assert.strictEqual(truncateAtCursor(expr, 15), 'short.very_long_segment');
+        // Cursor on "x"
+        assert.strictEqual(truncateAtCursor(expr, 24), 'short.very_long_segment.x');
+    });
+
+    test('Should handle cursor at segment boundaries correctly', () => {
+        const expr = 'abc.def.ghi';
+        // Just before the dot after "abc" (offset 2, end of "abc")
+        assert.strictEqual(truncateAtCursor(expr, 2), 'abc');
+        // Just after the first dot (offset 4, start of "def")
+        assert.strictEqual(truncateAtCursor(expr, 4), 'abc.def');
+        // Just before second dot (offset 6, end of "def")
+        assert.strictEqual(truncateAtCursor(expr, 6), 'abc.def');
+        // Just after second dot (offset 8, start of "ghi")
+        assert.strictEqual(truncateAtCursor(expr, 8), 'abc.def.ghi');
+    });
+});
+
 suite('Name Compression Logic', () => {
     // Replicate the compression logic for testing (without vscode dependencies)
     function compressName(name: string, maxLength: number): string {

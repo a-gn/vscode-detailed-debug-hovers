@@ -64,7 +64,9 @@ Arrays out of scope → Removed from panel automatically
 - Single-level attribute access: `obj.array`, `data.tensor`
 - Multi-level attribute access: `obj.nested.array`, `model.layer.weights`
 
-**Important Detail**: Uses `onDidChangeTextEditorSelection`, NOT true hover events. User must **click** or use **arrow keys** to move cursor onto variable or attribute chain.
+**Important Details**:
+- Uses `onDidChangeTextEditorSelection`, NOT true hover events. User must **click** or use **arrow keys** to move cursor onto variable or attribute chain.
+- **Cursor-aware truncation**: When clicking on a segment within an attribute chain, only the chain up to that segment is highlighted. For example, clicking on `arr3` in `arr3.mean()` highlights only `arr3`, not `arr3.mean`. This is handled by the `truncateAtCursor()` function.
 
 #### 2. `src/arrayInspector.ts` - Tree View Provider
 
@@ -529,14 +531,15 @@ npm test
 
 ### Test Coverage
 
-**All tests pass** ✓ **206 passing** (159ms)
+**All tests pass** ✓ **213 passing** (160ms)
 
-**1. Core Logic Tests** (`src/test/unit.test.ts` - 35 tests):
+**1. Core Logic Tests** (`src/test/unit.test.ts` - 42 tests):
 - Variable name detection logic
 - Python keyword filtering
 - Type matching (exact and substring matching)
 - **Attribute chain detection (6 tests)**: Simple variables, single-level access (obj.array), multi-level access (obj.nested.array), invalid expressions, extraction from text, underscores and numbers
 - Attribute expression construction (including nested expressions)
+- **Cursor-based truncation (7 tests)**: Truncating attribute chains at cursor position, handling multi-level chains, segment boundaries, varying lengths
 - **Name compression logic (18 tests)**: Single/multi-segment compression, length limits, intelligent truncation rules
 - Collapse state detection logic
 
@@ -594,7 +597,7 @@ npm test
 - Attribute item creation
 - Parent section detection and prioritization
 
-**Note**: Total unit tests = 35 + 12 + 35 + 64 + 29 + 31 = **206 tests**
+**Note**: Total unit tests = 42 + 12 + 35 + 64 + 29 + 31 = **213 tests**
 
 **7. Integration Tests** (`src/test/suite/arrayInspector.test.ts`):
 Full VSCode environment required:

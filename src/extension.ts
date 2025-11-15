@@ -142,8 +142,15 @@ function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Posit
         return;
     }
 
-    const word = editor.document.getText(wordRange);
-    outputChannel.appendLine(`Detected word: "${word}"`);
+    const fullWord = editor.document.getText(wordRange);
+    outputChannel.appendLine(`Full match at cursor: "${fullWord}"`);
+
+    // CRITICAL FIX: Truncate the expression to only include segments up to the cursor position
+    // For example, if cursor is on "arr3" in "arr3.mean()", we should only get "arr3"
+    const cursorOffsetInWord = position.character - wordRange.start.character;
+    const word = truncateAtCursor(fullWord, cursorOffsetInWord);
+
+    outputChannel.appendLine(`Truncated to cursor position: "${word}"`);
 
     // Ignore keywords and common built-ins
     const keywords = new Set([
@@ -175,6 +182,43 @@ function detectHoveredVariable(editor: vscode.TextEditor, position: vscode.Posit
     lastHighlightedWord = word;
     // Handle the hover
     arrayInspectorProvider.handleHover(word);
+}
+
+/**
+ * Truncates an attribute chain expression to only include segments up to the cursor position.
+ *
+ * This fixes the bug where clicking on "arr3" in "arr3.mean()" would incorrectly highlight
+ * the entire "arr3.mean" chain instead of just "arr3".
+ *
+ * Examples:
+ * - "arr3.mean" with cursor at offset 2 (on "arr3") -> "arr3"
+ * - "obj.nested.array" with cursor at offset 4 (on "nested") -> "obj.nested"
+ * - "obj.nested.array" with cursor at offset 15 (on "array") -> "obj.nested.array"
+ *
+ * @param expression The full attribute chain expression
+ * @param cursorOffset The character offset of the cursor within the expression
+ * @returns The truncated expression up to and including the segment containing the cursor
+ */
+function truncateAtCursor(expression: string, cursorOffset: number): string {
+    const segments = expression.split('.');
+    let currentOffset = 0;
+
+    for (let i = 0; i < segments.length; i++) {
+        const segmentStart = currentOffset;
+        const segmentEnd = currentOffset + segments[i].length;
+
+        // Check if cursor is within this segment
+        if (cursorOffset >= segmentStart && cursorOffset < segmentEnd) {
+            // Return all segments up to and including this one
+            return segments.slice(0, i + 1).join('.');
+        }
+
+        // Move past this segment and the dot
+        currentOffset = segmentEnd + 1; // +1 for the dot
+    }
+
+    // If we didn't find it (shouldn't happen), return the full expression
+    return expression;
 }
 
 export function deactivate(): void {
