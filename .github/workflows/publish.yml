@@ -67,3 +67,16 @@ jobs:
         run: vsce publish
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Package extension
+        run: vsce package
+
+      - name: Create GitHub Release
+        run: |
+          VERSION="${{ steps.extract_version.outputs.version }}"
+          gh release create "release/v$VERSION" \
+            --title "Release v$VERSION" \
+            --generate-notes \
+            array-inspector-$VERSION.vsix
+        env:
+          GH_TOKEN: ${{ github.token }}
