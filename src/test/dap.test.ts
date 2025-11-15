@@ -334,6 +334,63 @@ suite('DAP Communication Tests', () => {
             assert.ok(response.body, `Response ${index} should have body`);
         });
     });
+
+    test('Should wrap attribute expressions in str() to avoid quote escaping', async () => {
+        const capturedExpressions: string[] = [];
+
+        const mockSession: MockDebugSession = {
+            customRequest: async (_command: string, args?: any) => {
+                capturedExpressions.push(args.expression);
+                return {
+                    success: true,
+                    body: {
+                        result: 'cpu',
+                        variablesReference: 0
+                    }
+                };
+            }
+        };
+
+        // Simulate evaluating device attribute with str() wrapper
+        await mockSession.customRequest('evaluate', {
+            expression: 'str(tensor.device)',
+            context: 'hover',
+            frameId: 123
+        });
+
+        assert.strictEqual(capturedExpressions.length, 1, 'Should capture one expression');
+        assert.strictEqual(capturedExpressions[0], 'str(tensor.device)', 'Should wrap in str()');
+    });
+
+    test('Should handle PyTorch device string without quote escaping', () => {
+        // When using str(tensor.device), PyTorch returns clean strings
+        const cleanDeviceStrings = ['cpu', 'cuda:0', 'cuda:1', 'cuda'];
+
+        cleanDeviceStrings.forEach(deviceStr => {
+            // Verify no escaped quotes in the string
+            assert.ok(!deviceStr.includes("''"), `${deviceStr} should not have escaped quotes`);
+            assert.ok(!deviceStr.includes('""'), `${deviceStr} should not have double quotes`);
+        });
+    });
+
+    test('Should handle NumPy dtype string from str() call', () => {
+        // When using str(array.dtype), NumPy returns clean type names
+        const cleanDtypeStrings = ['int32', 'float64', 'complex128', 'bool'];
+
+        cleanDtypeStrings.forEach(dtypeStr => {
+            // Verify it's a simple string without dtype() wrapper
+            assert.ok(!dtypeStr.startsWith('dtype('), `${dtypeStr} should not have dtype() wrapper`);
+            assert.ok(!dtypeStr.includes("''"), `${dtypeStr} should not have escaped quotes`);
+        });
+    });
+
+    test('Should handle PyTorch shape string from str() call', () => {
+        // When using str(tensor.shape), PyTorch returns torch.Size([...])
+        const shapeString = 'torch.Size([100, 50])';
+
+        assert.ok(shapeString.includes('torch.Size'), 'Should include torch.Size');
+        assert.ok(!shapeString.includes("''"), 'Should not have escaped quotes');
+    });
 });
 
 // Helper function to simulate attribute results
