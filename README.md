@@ -7,7 +7,6 @@ A VSCode extension that shows detailed array information (shape, dtype, device) 
 - **Automatic Array Detection**: Hover over JAX or NumPy arrays during debugging to see their information in the sidebar
 - **Pin Arrays**: Pin important arrays to keep them visible across stack frames
 - **Real-time Updates**: Array information updates automatically as you step through code
-- **Configurable**: Choose which array types and attributes to display
 
 ## Usage
 
