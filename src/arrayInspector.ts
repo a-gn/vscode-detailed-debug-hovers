@@ -1007,7 +1007,8 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         }
 
         try {
-            const attrExpression = `${expression}.${attribute}`;
+            // Wrap in str() to get clean string representation without quote escaping
+            const attrExpression = `str(${expression}.${attribute})`;
             const result = await session.customRequest('evaluate', {
                 expression: attrExpression,
                 context: 'hover',

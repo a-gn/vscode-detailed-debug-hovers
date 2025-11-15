@@ -164,8 +164,29 @@ await session.customRequest('evaluate', {
 **Changes Made**:
 - [src/arrayInspector.ts:167-251](src/arrayInspector.ts#L167-L251): Updated `evaluateArray()` to get and use frameId
 - [src/arrayInspector.ts:253-279](src/arrayInspector.ts#L253-L279): Updated `evaluateAttribute()` to accept and use frameId parameter
-- [src/extension.ts:62-77](src/extension.ts#L62-L77): Fixed log spam by silently ignoring non-Python file selection changes
+- [src/extension.ts:62-77](src/extension.ts#L62-77): Fixed log spam by silently ignoring non-Python file selection changes
 - Added detailed logging at each step for easier debugging
+
+## Recent Fix: Corrected Quote Escaping in PyTorch Device Strings
+
+**Problem**: When copying PyTorch creation options, the device string had incorrectly escaped quotes: `device=torch.device(''cpu'')` instead of `device=torch.device('cpu')`.
+
+**Root Cause**: The DAP `evaluate` requests were returning the raw object representation, which when converted to a string by the debugger, could include escaped quotes. For example, evaluating `tensor.device` might return a representation with quotes that get escaped in the string conversion.
+
+**Solution**: Modified `evaluateAttribute()` in [src/arrayInspector.ts](src/arrayInspector.ts) to wrap attribute access in `str()` function:
+- Changed evaluation from `tensor.device` to `str(tensor.device)`
+- This ensures we get clean string representations without quote escaping issues
+- PyTorch devices now return simple strings like `cpu` or `cuda:0` instead of complex representations
+- NumPy dtypes return clean type names like `int32` instead of `dtype('int32')`
+- All existing formatting functions already handle these simpler string formats
+
+**Changes Made**:
+- [src/arrayInspector.ts:1011](src/arrayInspector.ts#L1011): Wrapped attribute expression in `str()` call
+
+**Benefits**:
+- PyTorch creation options now copy correctly: `size=(100, 50), dtype=torch.float64, device=torch.device('cpu')`
+- Cleaner, more predictable string representations from all array types
+- No need to parse complex debugger object representations
 
 ### Debugging Strategy (if issues persist)
 
@@ -492,7 +513,7 @@ npm test
 
 ### Test Coverage
 
-**All tests pass** ✓ **180 passing** (155ms)
+**All tests pass** ✓ **184 passing**
 
 **1. Core Logic Tests** (`src/test/unit.test.ts` - 9 tests):
 - Variable name detection logic
@@ -501,7 +522,7 @@ npm test
 - Attribute expression construction
 - Collapse state detection logic
 
-**2. DAP Communication Tests** (`src/test/dap.test.ts` - 12 tests):
+**2. DAP Communication Tests** (`src/test/dap.test.ts` - 16 tests):
 - customRequest parameter validation
 - Evaluate response parsing (with/without type)
 - Successful and failed responses
@@ -511,6 +532,8 @@ npm test
 - Concurrent attribute evaluations
 - Attribute evaluation failure handling
 - Realistic response parsing for NumPy and JAX
+- str() wrapping for attribute evaluation to avoid quote escaping
+- Clean string representations for PyTorch devices, NumPy dtypes, and PyTorch shapes
 
 **3. Edge Cases and Error Handling** (`src/test/edge-cases.test.ts` - 35 tests):
 - Empty/malformed variable names
@@ -555,7 +578,7 @@ npm test
 - Attribute item creation
 - Parent section detection and prioritization
 
-**Note**: Total unit tests = 9 + 12 + 35 + 64 + 29 + 31 = **180 tests**
+**Note**: Total unit tests = 9 + 16 + 35 + 64 + 29 + 31 = **184 tests**
 
 **7. Integration Tests** (`src/test/suite/arrayInspector.test.ts`):
 Full VSCode environment required:
