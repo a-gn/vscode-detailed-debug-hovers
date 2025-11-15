@@ -2,7 +2,7 @@
   "name": "array-inspector",
   "displayName": "Array Inspector",
   "description": "Show detailed array information (shape, dtype, device) in a sidebar panel during Python debugging",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "ArnoGobbin",
   "engines": {
     "vscode": "^1.85.0"
