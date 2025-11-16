@@ -42,6 +42,23 @@ async function installPythonExtensions(vscodeExecutablePath: string): Promise<vo
             }
         });
     });
+
+    // Install Python Environments extension (for Python environment discovery)
+    await new Promise<void>((resolve, reject) => {
+        console.log('Installing Python Environments extension (ms-python.vscode-python-envs)...');
+        const installProcess = spawn(cli, [...args, '--install-extension', 'ms-python.vscode-python-envs', '--force'], {
+            stdio: 'inherit'
+        });
+
+        installProcess.on('close', (code: number | null) => {
+            if (code !== 0) {
+                reject(new Error(`Failed to install Python Environments extension, exit code: ${code}`));
+            } else {
+                console.log('✓ Python Environments extension installed successfully');
+                resolve();
+            }
+        });
+    });
 }
 
 async function main() {
@@ -61,7 +78,8 @@ async function main() {
             launchArgs: [
                 testWorkspace,
                 '--enable-proposed-api=ms-python.python',
-                '--enable-proposed-api=ms-python.debugpy'
+                '--enable-proposed-api=ms-python.debugpy',
+                '--enable-proposed-api=ms-python.vscode-python-envs'
             ]
         });
     } catch (err) {
