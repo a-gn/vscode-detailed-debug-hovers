@@ -165,7 +165,7 @@ suite('Array Inspector GUI Integration Tests', () => {
             name: 'Test Debug',
             request: 'launch',
             program: testPythonFile.fsPath,
-            console: 'integratedTerminal',
+            console: 'internalConsole',
             justMyCode: true,
             stopOnEntry: false
         };
@@ -244,7 +244,7 @@ suite('Array Inspector GUI Integration Tests', () => {
             name: 'Test Variable Selection',
             request: 'launch',
             program: testPythonFile.fsPath,
-            console: 'integratedTerminal',
+            console: 'internalConsole',
             justMyCode: true
         };
 
@@ -335,7 +335,7 @@ suite('Array Inspector GUI Integration Tests', () => {
             name: 'Test Array Panel',
             request: 'launch',
             program: testPythonFile.fsPath,
-            console: 'integratedTerminal',
+            console: 'internalConsole',
             justMyCode: true
         };
 
@@ -437,7 +437,7 @@ suite('Array Inspector GUI Integration Tests', () => {
             name: 'Test Pin',
             request: 'launch',
             program: testPythonFile.fsPath,
-            console: 'integratedTerminal',
+            console: 'internalConsole',
             justMyCode: true
         };
 
@@ -579,7 +579,7 @@ suite('Array Inspector GUI Integration Tests', () => {
                 name: 'Test Attributes',
                 request: 'launch',
                 program: testPythonFile.fsPath,
-                console: 'integratedTerminal',
+                console: 'internalConsole',
                 justMyCode: true
             };
 
