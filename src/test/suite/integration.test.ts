@@ -66,6 +66,22 @@ suite('Array Inspector GUI Integration Tests', () => {
             console.log('✓ Python extension already active');
         }
 
+        // Give Python extension time to initialize debug adapter
+        console.log('Waiting for Python extension to initialize debug adapter...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        // Try to trigger Python interpreter discovery
+        try {
+            console.log('Triggering Python interpreter selection...');
+            await vscode.commands.executeCommand('python.setInterpreter');
+            console.log('✓ Python interpreter command executed');
+        } catch (e) {
+            console.log(`Python interpreter selection: ${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        // Wait a bit more for interpreter discovery
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
         console.log('=== Suite Setup Complete ===');
     });
 
