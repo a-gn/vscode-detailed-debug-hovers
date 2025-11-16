@@ -7,12 +7,12 @@ on:
       - 'release/v*.*.*'
 
 jobs:
-  # Run tests first before publishing
+  # Run all tests first before publishing
   test:
     uses: ./.github/workflows/test.yml
 
   publish:
-    needs: test
+    needs: test  # Waits for both unit and integration tests to pass
     runs-on: ubuntu-latest
     environment: Deployment
     permissions:

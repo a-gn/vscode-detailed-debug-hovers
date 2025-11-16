@@ -733,24 +733,46 @@ Runs automatically on:
 
 **Environment**: `Testing`
 
-**Steps**:
+**Two parallel jobs for comprehensive testing**:
+
+#### Job 1: Unit Tests (Fast)
+**Duration**: ~30 seconds
+
 1. Checkout code
 2. Setup Node.js 20 with npm cache
 3. Install dependencies (`npm ci`)
 4. Compile TypeScript (`npm run compile`)
-5. Run unit tests (`npm run test:unit` - 213 unit tests)
+5. Run 226 unit tests (`npm run test:unit` - ~140ms)
 6. Verify compilation output exists
 7. Generate test summary in GitHub UI
 
-**Features**:
-- Fast feedback on PRs (typically < 2 minutes)
-- Blocks deployment if tests fail
-- Only uses official GitHub Actions (no third-party dependencies)
-- Provides test summary in GitHub step summary
+#### Job 2: Integration Tests (Thorough)
+**Duration**: ~2-3 minutes
+
+1. Checkout code
+2. Setup Node.js 20 with npm cache
+3. Setup Python 3.11
+4. Install Python dependencies (`numpy`, `debugpy`)
+5. Install npm dependencies (`npm ci`)
+6. Compile TypeScript (`npm run compile`)
+7. Run 13 integration tests in headless VSCode (`xvfb-run -a npm test`)
+8. Generate test summary in GitHub UI
+
+**Key Features**:
+- **Parallel execution**: Both jobs run simultaneously for speed
+- **Headless VSCode**: Integration tests run in CI using `xvfb` virtual display
+- **Complete coverage**: Unit tests (226) + Integration tests (13) = 239 total tests
+- **Fast feedback**: Unit tests complete in ~30s, integration in ~2-3 min
+- **Blocks deployment**: Both jobs must pass before publishing
+- **Only official Actions**: No third-party GitHub Actions used
 
 **Running locally**:
 ```bash
+# Unit tests only (fast)
 npm run compile && npm run test:unit
+
+# All tests including integration (requires Python + numpy)
+npm test
 ```
 
 ## Deployment Process
@@ -818,11 +840,11 @@ If you prefer manual control:
 ### What Happens After Pushing
 
 **Automated workflow** (`.github/workflows/publish.yml`):
-1. **Test Job** (calls `test.yml`):
-   - Runs all unit tests (213 tests)
-   - Verifies compilation succeeds
-   - Deployment blocked if tests fail
-2. **Publish Job** (runs only if tests pass):
+1. **Test Jobs** (calls `test.yml` - runs in parallel):
+   - **Unit tests**: 226 tests in ~30 seconds
+   - **Integration tests**: 13 tests in ~2-3 minutes (headless VSCode)
+   - Deployment blocked if ANY test fails
+2. **Publish Job** (runs only if ALL tests pass):
    - Extracts version from tag (`release/v0.2.0` → `0.2.0`)
    - Validates that tag version matches `package.json` version
    - Fails immediately if versions don't match

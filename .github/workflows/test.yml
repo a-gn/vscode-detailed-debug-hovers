@@ -10,7 +10,7 @@ on:
   workflow_call:
 
 jobs:
-  test:
+  unit-tests:
     runs-on: ubuntu-latest
     environment: Testing
 
@@ -41,13 +41,66 @@ jobs:
           fi
           echo "✅ Compilation successful"
 
-      - name: Test summary
+      - name: Unit test summary
         if: always()
         run: |
-          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## Unit Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tests**: 226 unit tests" >> $GITHUB_STEP_SUMMARY
+          echo "- **Duration**: ~140ms" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ ${{ job.status }} == "success" ]; then
-            echo "✅ All tests passed" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All unit tests passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "❌ Tests failed" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Unit tests failed" >> $GITHUB_STEP_SUMMARY
           fi
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    environment: Testing
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy debugpy
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile TypeScript
+        run: npm run compile
+
+      - name: Run integration tests (headless)
+        run: xvfb-run -a npm test
+        env:
+          CI: true
+
+      - name: Integration test summary
+        if: always()
+        run: |
+          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tests**: 13 integration tests (5 basic + 8 GUI)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: Headless VSCode with xvfb" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ ${{ job.status }} == "success" ]; then
+            echo "✅ All integration tests passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Integration tests failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
