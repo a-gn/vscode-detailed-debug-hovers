@@ -21,8 +21,11 @@ suite('Array Inspector GUI Integration Tests', () => {
         // Increase timeout for integration tests
         this.timeout(60000);
 
+        console.log('=== Integration Test Suite Setup ===');
+
         // Get the test Python file path
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        console.log(`Workspace folder: ${workspaceFolder?.uri.fsPath || 'none'}`);
         assert.ok(workspaceFolder, 'Workspace folder should be available');
 
         testPythonFile = vscode.Uri.file(
@@ -32,21 +35,38 @@ suite('Array Inspector GUI Integration Tests', () => {
         // Verify the test file exists
         try {
             await vscode.workspace.fs.stat(testPythonFile);
+            console.log(`✓ Test file found: ${testPythonFile.fsPath}`);
         } catch (e) {
+            console.error(`✗ Test file not found: ${testPythonFile.fsPath}`);
             assert.fail(`Test file not found: ${testPythonFile.fsPath}`);
         }
 
-        console.log(`Test file found: ${testPythonFile.fsPath}`);
+        // List all installed extensions
+        const allExtensions = vscode.extensions.all.map(ext => ext.id);
+        console.log(`Installed extensions (${allExtensions.length}): ${allExtensions.slice(0, 5).join(', ')}...`);
 
         // Ensure Python extension is activated
         const pythonExt = vscode.extensions.getExtension('ms-python.python');
-        if (pythonExt && !pythonExt.isActive) {
-            console.log('Activating Python extension...');
-            await pythonExt.activate();
-            console.log('Python extension activated');
-        } else if (!pythonExt) {
-            console.log('WARNING: Python extension not found');
+        if (!pythonExt) {
+            console.error('✗ Python extension not found!');
+            console.log('Available Python-related extensions:',
+                allExtensions.filter(id => id.toLowerCase().includes('python')));
+            throw new Error('Python extension not installed');
         }
+
+        console.log(`Python extension found: ${pythonExt.id}, active: ${pythonExt.isActive}`);
+
+        if (!pythonExt.isActive) {
+            console.log('Activating Python extension...');
+            const startTime = Date.now();
+            await pythonExt.activate();
+            const elapsed = Date.now() - startTime;
+            console.log(`✓ Python extension activated (took ${elapsed}ms)`);
+        } else {
+            console.log('✓ Python extension already active');
+        }
+
+        console.log('=== Suite Setup Complete ===');
     });
 
     suiteTeardown(async function() {
@@ -74,9 +94,13 @@ suite('Array Inspector GUI Integration Tests', () => {
     test('Should start debug session and hit breakpoint', async function() {
         this.timeout(30000);
 
+        console.log('\n--- Test: Should start debug session and hit breakpoint ---');
+
         // Open the test file
+        console.log('Opening test file...');
         const document = await vscode.workspace.openTextDocument(testPythonFile);
         await vscode.window.showTextDocument(document);
+        console.log('✓ Test file opened');
 
         // Find the line with "arr1 = " to set breakpoint
         const text = document.getText();
@@ -89,6 +113,7 @@ suite('Array Inspector GUI Integration Tests', () => {
             }
         }
 
+        console.log(`Breakpoint line: ${breakpointLine}`);
         assert.ok(breakpointLine >= 0, 'Should find arr1 assignment line');
 
         // Set breakpoint
@@ -96,11 +121,19 @@ suite('Array Inspector GUI Integration Tests', () => {
             new vscode.Location(testPythonFile, new vscode.Position(breakpointLine, 0))
         );
         vscode.debug.addBreakpoints([breakpoint]);
+        console.log('✓ Breakpoint set');
 
         // Wait for debug session to start and hit breakpoint
-        const debugStarted = new Promise<vscode.DebugSession>((resolve) => {
-            const disposable = vscode.debug.onDidStartDebugSession((session) => {
+        const debugStarted = new Promise<vscode.DebugSession>((resolve, reject) => {
+            const timeout = setTimeout(() => {
                 disposable.dispose();
+                reject(new Error('Timeout waiting for debug session to start'));
+            }, 15000);
+
+            const disposable = vscode.debug.onDidStartDebugSession((session) => {
+                clearTimeout(timeout);
+                disposable.dispose();
+                console.log(`✓ Debug session started: ${session.name} (type: ${session.type})`);
                 resolve(session);
             });
         });
@@ -110,6 +143,7 @@ suite('Array Inspector GUI Integration Tests', () => {
                 // Breakpoint was hit if we have an active stack frame
                 if (vscode.debug.activeStackItem) {
                     disposable.dispose();
+                    console.log('✓ Breakpoint hit (via onDidChangeBreakpoints)');
                     resolve();
                 }
             });
@@ -119,6 +153,7 @@ suite('Array Inspector GUI Integration Tests', () => {
                 if (vscode.debug.activeStackItem) {
                     disposable.dispose();
                     disposable2.dispose();
+                    console.log('✓ Breakpoint hit (via onDidChangeActiveStackItem)');
                     resolve();
                 }
             });
@@ -135,14 +170,18 @@ suite('Array Inspector GUI Integration Tests', () => {
             stopOnEntry: false
         };
 
+        console.log(`Starting debug session with config:`, JSON.stringify(config, null, 2));
         const started = await vscode.debug.startDebugging(undefined, config);
+        console.log(`startDebugging returned: ${started}`);
         assert.ok(started, 'Debug session should start');
 
         // Wait for session to start
+        console.log('Waiting for debug session to start...');
         const session = await debugStarted;
         assert.ok(session, 'Debug session should be active');
 
         // Wait for breakpoint (with timeout)
+        console.log('Waiting for breakpoint to be hit...');
         await Promise.race([
             stoppedAtBreakpoint,
             new Promise((_, reject) =>
@@ -151,6 +190,7 @@ suite('Array Inspector GUI Integration Tests', () => {
         ]);
 
         assert.ok(vscode.debug.activeDebugSession, 'Should have active debug session');
+        console.log('✓ Test passed');
 
         // Cleanup
         vscode.debug.removeBreakpoints([breakpoint]);
