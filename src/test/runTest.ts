@@ -6,10 +6,12 @@ import * as path from 'path';
 import { runTests, downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from '@vscode/test-electron';
 import { spawn } from 'child_process';
 
-async function installPythonExtension(vscodeExecutablePath: string): Promise<void> {
+async function installPythonExtensions(vscodeExecutablePath: string): Promise<void> {
     const [cli, ...args] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath);
 
-    return new Promise((resolve, reject) => {
+    // Install Python extension
+    await new Promise<void>((resolve, reject) => {
+        console.log('Installing Python extension (ms-python.python)...');
         const installProcess = spawn(cli, [...args, '--install-extension', 'ms-python.python', '--force'], {
             stdio: 'inherit'
         });
@@ -18,7 +20,24 @@ async function installPythonExtension(vscodeExecutablePath: string): Promise<voi
             if (code !== 0) {
                 reject(new Error(`Failed to install Python extension, exit code: ${code}`));
             } else {
-                console.log('Python extension installed successfully');
+                console.log('✓ Python extension installed successfully');
+                resolve();
+            }
+        });
+    });
+
+    // Install Python Debugger extension (required for debugpy support)
+    await new Promise<void>((resolve, reject) => {
+        console.log('Installing Python Debugger extension (ms-python.debugpy)...');
+        const installProcess = spawn(cli, [...args, '--install-extension', 'ms-python.debugpy', '--force'], {
+            stdio: 'inherit'
+        });
+
+        installProcess.on('close', (code: number | null) => {
+            if (code !== 0) {
+                reject(new Error(`Failed to install Python Debugger extension, exit code: ${code}`));
+            } else {
+                console.log('✓ Python Debugger extension installed successfully');
                 resolve();
             }
         });
@@ -31,9 +50,9 @@ async function main() {
         const extensionTestsPath = path.resolve(__dirname, './suite/index');
         const testWorkspace = path.resolve(__dirname, '../../');
 
-        // Download VSCode if needed and install Python extension for integration tests
+        // Download VSCode if needed and install Python extensions for integration tests
         const vscodeExecutablePath = await downloadAndUnzipVSCode();
-        await installPythonExtension(vscodeExecutablePath);
+        await installPythonExtensions(vscodeExecutablePath);
 
         await runTests({
             vscodeExecutablePath,
