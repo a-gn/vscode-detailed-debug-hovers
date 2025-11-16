@@ -6,56 +6,16 @@ on:
     branches:
       - main
 
+  # TEMPORARY: Test workflow
+  push:
+    branches:
+      - claude/add-gui-integration-tests-017tdSfwQFzttHYiUxgHf1gR
+
   # Allow workflow to be called by other workflows (like deployment)
   workflow_call:
 
 jobs:
-  unit-tests:
-    runs-on: ubuntu-latest
-    environment: Testing
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Compile TypeScript
-        run: npm run compile
-
-      - name: Run unit tests
-        run: npm run test:unit
-
-      - name: Verify compilation output
-        run: |
-          if [ ! -d "out" ]; then
-            echo "❌ Error: Compilation failed - 'out' directory not found"
-            exit 1
-          fi
-          echo "✅ Compilation successful"
-
-      - name: Unit test summary
-        if: always()
-        run: |
-          echo "## Unit Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tests**: 226 unit tests" >> $GITHUB_STEP_SUMMARY
-          echo "- **Duration**: ~140ms" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ ${{ job.status }} == "success" ]; then
-            echo "✅ All unit tests passed" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ Unit tests failed" >> $GITHUB_STEP_SUMMARY
-          fi
-
-  integration-tests:
+  test:
     runs-on: ubuntu-latest
     environment: Testing
 
@@ -73,34 +33,37 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install numpy debugpy
+          cache: 'pip'
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          pip install -r requirements.txt
 
       - name: Compile TypeScript
         run: npm run compile
+
+      - name: Run unit tests
+        run: npm run test:unit
 
       - name: Run integration tests (headless)
         run: xvfb-run -a npm test
         env:
           CI: true
 
-      - name: Integration test summary
+      - name: Test summary
         if: always()
         run: |
-          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tests**: 13 integration tests (5 basic + 8 GUI)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Unit tests**: 226 tests (~140ms)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Integration tests**: 13 tests (5 basic + 8 GUI)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total**: 239 tests" >> $GITHUB_STEP_SUMMARY
           echo "- **Environment**: Headless VSCode with xvfb" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ ${{ job.status }} == "success" ]; then
-            echo "✅ All integration tests passed" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All tests passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "❌ Integration tests failed" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Tests failed" >> $GITHUB_STEP_SUMMARY
           fi
 
