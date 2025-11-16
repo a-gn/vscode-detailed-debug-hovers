@@ -58,7 +58,11 @@ async function main() {
             vscodeExecutablePath,
             extensionDevelopmentPath,
             extensionTestsPath,
-            launchArgs: [testWorkspace]
+            launchArgs: [
+                testWorkspace,
+                '--enable-proposed-api=ms-python.python',
+                '--enable-proposed-api=ms-python.debugpy'
+            ]
         });
     } catch (err) {
         console.error('Failed to run tests:', err);
