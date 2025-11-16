@@ -7,7 +7,12 @@ on:
       - 'release/v*.*.*'
 
 jobs:
+  # Run tests first before publishing
+  test:
+    uses: ./.github/workflows/test.yml
+
   publish:
+    needs: test
     runs-on: ubuntu-latest
     environment: Deployment
     permissions:
@@ -58,9 +63,6 @@ jobs:
 
       - name: Compile TypeScript
         run: npm run compile
-
-      - name: Run unit tests
-        run: npm run test:unit
 
       - name: Install vsce
         run: npm install -g @vscode/vsce
