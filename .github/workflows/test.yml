@@ -6,6 +6,11 @@ on:
     branches:
       - main
 
+  # TEMPORARY: Test CI on this branch
+  push:
+    branches:
+      - claude/add-gui-integration-tests-017tdSfwQFzttHYiUxgHf1gR
+
   # Allow workflow to be called by other workflows (like deployment)
   workflow_call:
 
