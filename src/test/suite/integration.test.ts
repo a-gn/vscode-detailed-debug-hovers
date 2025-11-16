@@ -37,6 +37,16 @@ suite('Array Inspector GUI Integration Tests', () => {
         }
 
         console.log(`Test file found: ${testPythonFile.fsPath}`);
+
+        // Ensure Python extension is activated
+        const pythonExt = vscode.extensions.getExtension('ms-python.python');
+        if (pythonExt && !pythonExt.isActive) {
+            console.log('Activating Python extension...');
+            await pythonExt.activate();
+            console.log('Python extension activated');
+        } else if (!pythonExt) {
+            console.log('WARNING: Python extension not found');
+        }
     });
 
     suiteTeardown(async function() {
