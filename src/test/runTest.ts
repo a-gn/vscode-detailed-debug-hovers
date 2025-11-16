@@ -3,7 +3,27 @@
  */
 
 import * as path from 'path';
-import { runTests } from '@vscode/test-electron';
+import { runTests, downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from '@vscode/test-electron';
+import { spawn } from 'child_process';
+
+async function installPythonExtension(vscodeExecutablePath: string): Promise<void> {
+    const [cli, ...args] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath);
+
+    return new Promise((resolve, reject) => {
+        const installProcess = spawn(cli, [...args, '--install-extension', 'ms-python.python', '--force'], {
+            stdio: 'inherit'
+        });
+
+        installProcess.on('close', (code: number | null) => {
+            if (code !== 0) {
+                reject(new Error(`Failed to install Python extension, exit code: ${code}`));
+            } else {
+                console.log('Python extension installed successfully');
+                resolve();
+            }
+        });
+    });
+}
 
 async function main() {
     try {
@@ -11,11 +31,15 @@ async function main() {
         const extensionTestsPath = path.resolve(__dirname, './suite/index');
         const testWorkspace = path.resolve(__dirname, '../../');
 
+        // Download VSCode if needed and install Python extension for integration tests
+        const vscodeExecutablePath = await downloadAndUnzipVSCode();
+        await installPythonExtension(vscodeExecutablePath);
+
         await runTests({
+            vscodeExecutablePath,
             extensionDevelopmentPath,
             extensionTestsPath,
-            // Open the extension root as workspace so tests can access test-examples/
-            launchArgs: [testWorkspace, '--disable-extensions']
+            launchArgs: [testWorkspace]
         });
     } catch (err) {
         console.error('Failed to run tests:', err);

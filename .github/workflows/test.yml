@@ -50,7 +50,8 @@ jobs:
 
       - name: Run integration tests (headless)
         run: xvfb-run -a npm test
-        continue-on-error: true
+        env:
+          DISPLAY: ':99.0'
 
       - name: Test summary
         if: always()
