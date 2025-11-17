@@ -1,84 +1,62 @@
 /**
  * Unit tests for array visualization functionality
- * Tests parseShape, getNormalizeToNumpyExpression, decodePythonString, and other visualization-related methods
+ * Tests parseShape, getNormalizeToNumpyExpression, JSON parsing, and other visualization-related methods
  */
 
 import * as assert from 'assert';
 
 suite('Array Visualization Tests', () => {
-    suite('decodePythonString', () => {
-        // Helper function to simulate decodePythonString logic
-        function decodePythonString(pythonStr: string): string {
-            let result = pythonStr;
-
-            // Remove surrounding quotes if present (single or double)
-            if ((result.startsWith("'") && result.endsWith("'")) ||
-                (result.startsWith('"') && result.endsWith('"'))) {
-                result = result.slice(1, -1);
-            }
-
-            // Decode common Python escape sequences
-            // IMPORTANT: Replace \\\\ first to avoid interfering with other escape sequences
-            result = result
-                .replace(/\\\\/g, '\x00')  // Replace \\ with placeholder (null char) to avoid conflicts
-                .replace(/\\n/g, '\n')
-                .replace(/\\t/g, '\t')
-                .replace(/\\r/g, '\r')
-                .replace(/\\'/g, "'")
-                .replace(/\\"/g, '"')
-                .replace(/\x00/g, '\\');   // Replace placeholder with single backslash
-
-            return result;
-        }
-
-        test('should decode newlines', () => {
-            const input = "'[[1 2]\\n [3 4]]'";
-            const result = decodePythonString(input);
+    suite('JSON encoding/decoding', () => {
+        test('should handle newlines via JSON', () => {
+            // Simulate what Python's json.dumps returns
+            const jsonEncoded = '"[[1 2]\\n [3 4]]"';
+            const result = JSON.parse(jsonEncoded);
             assert.strictEqual(result, '[[1 2]\n [3 4]]');
+            assert.ok(result.includes('\n'));
         });
 
-        test('should decode tabs', () => {
-            const input = '"column1\\tcolumn2"';
-            const result = decodePythonString(input);
+        test('should handle tabs via JSON', () => {
+            const jsonEncoded = '"column1\\tcolumn2"';
+            const result = JSON.parse(jsonEncoded);
             assert.strictEqual(result, 'column1\tcolumn2');
         });
 
-        test('should handle string without quotes', () => {
-            const input = '[[1 2 3]]';
-            const result = decodePythonString(input);
-            assert.strictEqual(result, '[[1 2 3]]');
-        });
-
-        test('should decode backslashes', () => {
-            const input = "'path\\\\to\\\\file'";
-            const result = decodePythonString(input);
+        test('should handle backslashes via JSON', () => {
+            const jsonEncoded = '"path\\\\to\\\\file"';
+            const result = JSON.parse(jsonEncoded);
             assert.strictEqual(result, 'path\\to\\file');
         });
 
-        test('should decode quotes', () => {
-            const input = `"He said \\"hello\\""`;
-            const result = decodePythonString(input);
+        test('should handle quotes via JSON', () => {
+            const jsonEncoded = '"He said \\"hello\\""';
+            const result = JSON.parse(jsonEncoded);
             assert.strictEqual(result, 'He said "hello"');
         });
 
-        test('should handle multiline array string', () => {
-            const input = "'[[0. 0. 0.]\\n [0. 0. 0.]\\n [0. 0. 0.]]'";
-            const result = decodePythonString(input);
+        test('should handle multiline array string via JSON', () => {
+            const jsonEncoded = '"[[0. 0. 0.]\\n [0. 0. 0.]\\n [0. 0. 0.]]"';
+            const result = JSON.parse(jsonEncoded);
             assert.strictEqual(result, '[[0. 0. 0.]\n [0. 0. 0.]\n [0. 0. 0.]]');
             assert.ok(result.includes('\n'));
             assert.ok(!result.includes('\\n'));
         });
 
-        test('should handle empty string', () => {
-            const input = "''";
-            const result = decodePythonString(input);
+        test('should handle empty string via JSON', () => {
+            const jsonEncoded = '""';
+            const result = JSON.parse(jsonEncoded);
             assert.strictEqual(result, '');
         });
 
-        test('should handle complex escape sequences', () => {
-            const input = "'line1\\nline2\\tindented\\\\backslash'";
-            const result = decodePythonString(input);
+        test('should handle complex escape sequences via JSON', () => {
+            const jsonEncoded = '"line1\\nline2\\tindented\\\\backslash"';
+            const result = JSON.parse(jsonEncoded);
             assert.strictEqual(result, 'line1\nline2\tindented\\backslash');
+        });
+
+        test('should handle unicode via JSON', () => {
+            const jsonEncoded = '"Hello \\u4e16\\u754c"';
+            const result = JSON.parse(jsonEncoded);
+            assert.strictEqual(result, 'Hello 世界');
         });
     });
 

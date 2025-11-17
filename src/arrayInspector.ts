@@ -862,8 +862,9 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             }
 
             // Normalize to NumPy and get string representation using array2string
+            // Use JSON encoding to ensure proper handling of newlines and special characters
             const normalizeExpression = this.getNormalizeToNumpyExpression(expression, arrayInfo.type);
-            const array2stringExpression = `__import__('numpy').array2string(${normalizeExpression}, threshold=${array2stringThreshold}, max_line_width=${maxLineWidth})`;
+            const array2stringExpression = `__import__('json').dumps(__import__('numpy').array2string(${normalizeExpression}, threshold=${array2stringThreshold}, max_line_width=${maxLineWidth}))`;
 
             this.outputChannel.appendLine(`Evaluating array visualization: ${array2stringExpression}`);
 
@@ -878,8 +879,8 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
                 throw new Error('Failed to get array string representation');
             }
 
-            // Decode the Python string literal to get actual content
-            const arrayStr = this.decodePythonString(responseBody.result);
+            // Parse the JSON-encoded string to get actual content with proper escape handling
+            const arrayStr = JSON.parse(responseBody.result);
 
             // Create and show visualization document
             await this.showVisualizationDocument(arrayInfo, arrayStr, null, null);
@@ -936,8 +937,8 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             const array2stringThreshold = config.get<number>('array2stringThreshold', 1000);
             const maxLineWidth = config.get<number>('array2stringMaxLineWidth', 120);
 
-            // Build array2string expression for sliced array
-            const slicedArray2stringExpr = `__import__('numpy').array2string(${slicedExpression}, threshold=${array2stringThreshold}, max_line_width=${maxLineWidth})`;
+            // Build array2string expression for sliced array (JSON-encoded for proper escape handling)
+            const slicedArray2stringExpr = `__import__('json').dumps(__import__('numpy').array2string(${slicedExpression}, threshold=${array2stringThreshold}, max_line_width=${maxLineWidth}))`;
 
             // Get sliced array properties
             const [slicedShape, slicedDtype, slicedStr] = await Promise.all([
@@ -957,8 +958,8 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
                 isAvailable: true
             };
 
-            // Decode the Python string literal and create visualization document
-            const decodedSlicedStr = slicedStr ? this.decodePythonString(slicedStr) : '';
+            // Parse the JSON-encoded string to get actual content with proper escape handling
+            const decodedSlicedStr = slicedStr ? JSON.parse(slicedStr) : '';
             await this.showVisualizationDocument(arrayInfo, decodedSlicedStr, sliceInput, slicedInfo);
 
         } catch (error) {
@@ -978,33 +979,6 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         }
         // For NumPy arrays, use as-is
         return expression;
-    }
-
-    private decodePythonString(pythonStr: string): string {
-        // DAP evaluate returns a Python string value
-        // We need to decode escape sequences like \n, \t, etc.
-
-        // First, check if the string is wrapped in quotes (Python string literal)
-        let result = pythonStr;
-
-        // Remove surrounding quotes if present (single or double)
-        if ((result.startsWith("'") && result.endsWith("'")) ||
-            (result.startsWith('"') && result.endsWith('"'))) {
-            result = result.slice(1, -1);
-        }
-
-        // Decode common Python escape sequences
-        // IMPORTANT: Replace \\\\ first to avoid interfering with other escape sequences
-        result = result
-            .replace(/\\\\/g, '\x00')  // Replace \\ with placeholder (null char) to avoid conflicts
-            .replace(/\\n/g, '\n')     // Newlines
-            .replace(/\\t/g, '\t')     // Tabs
-            .replace(/\\r/g, '\r')     // Carriage returns
-            .replace(/\\'/g, "'")      // Single quotes
-            .replace(/\\"/g, '"')      // Double quotes
-            .replace(/\x00/g, '\\');   // Replace placeholder with single backslash
-
-        return result;
     }
 
     private parseShape(shapeStr: string | null): { dimensions: number[], totalSize: number } {
