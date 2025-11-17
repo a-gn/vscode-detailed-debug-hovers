@@ -821,6 +821,271 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         return `${moduleRef}${separator}device('${device}')`;
     }
 
+    async visualizeEntireArray(item: ArrayInfoItem): Promise<void> {
+        if (!item.arrayInfo.isAvailable) {
+            vscode.window.showErrorMessage('Array is not available in the current frame');
+            return;
+        }
+
+        const arrayInfo = item.arrayInfo;
+        const expression = arrayInfo.name;
+
+        try {
+            const session = vscode.debug.activeDebugSession;
+            if (!session) {
+                throw new Error('No active debug session');
+            }
+
+            const frameId = await this.getCurrentFrameId();
+
+            // Parse shape to get dimensions and total size
+            const { dimensions, totalSize } = this.parseShape(arrayInfo.shape);
+
+            // Get configuration thresholds
+            const config = vscode.workspace.getConfiguration('arrayInspector');
+            const sizeThreshold = config.get<number>('visualizationSizeThreshold', 10000);
+            const dimensionThreshold = config.get<number>('visualizationDimensionThreshold', 1000);
+
+            // Check if we need to show confirmation
+            const exceedsSizeThreshold = totalSize > sizeThreshold;
+            const exceedsDimensionThreshold = dimensions.some(d => d > dimensionThreshold);
+
+            if (exceedsSizeThreshold || exceedsDimensionThreshold) {
+                const sizeInfo = `Total size: ${totalSize.toLocaleString()}, Shape: ${arrayInfo.shape}`;
+                const message = `This array is large (${sizeInfo}). Visualizing it may take some time and consume memory. Continue?`;
+                const choice = await vscode.window.showWarningMessage(message, 'Yes', 'No');
+                if (choice !== 'Yes') {
+                    return;
+                }
+            }
+
+            // Normalize to NumPy and get string representation
+            // For JAX arrays or device arrays, we need to copy to CPU/RAM first
+            const normalizeExpression = this.getNormalizeToNumpyExpression(expression, arrayInfo.type);
+            const strExpression = `str(${normalizeExpression})`;
+
+            this.outputChannel.appendLine(`Evaluating array visualization: ${strExpression}`);
+
+            const result = await session.customRequest('evaluate', {
+                expression: strExpression,
+                context: 'hover',
+                frameId
+            });
+
+            const responseBody = result.body || result;
+            if (!responseBody || !responseBody.result) {
+                throw new Error('Failed to get array string representation');
+            }
+
+            const arrayStr = responseBody.result;
+
+            // Create and show visualization document
+            await this.showVisualizationDocument(arrayInfo, arrayStr, null, null);
+
+        } catch (error) {
+            this.outputChannel.appendLine(`Error visualizing array: ${error}`);
+            vscode.window.showErrorMessage(`Failed to visualize array: ${error}`);
+        }
+    }
+
+    async visualizeSlicedArray(item: ArrayInfoItem): Promise<void> {
+        if (!item.arrayInfo.isAvailable) {
+            vscode.window.showErrorMessage('Array is not available in the current frame');
+            return;
+        }
+
+        const arrayInfo = item.arrayInfo;
+        const expression = arrayInfo.name;
+
+        try {
+            // Ask user for slice indices
+            const sliceInput = await vscode.window.showInputBox({
+                prompt: 'Enter slice indices (e.g., "0:10, :, 5" or "0")',
+                placeHolder: '0:10, :, 5',
+                validateInput: (value) => {
+                    if (!value || value.trim() === '') {
+                        return 'Please enter slice indices';
+                    }
+                    return null;
+                }
+            });
+
+            if (!sliceInput) {
+                return; // User cancelled
+            }
+
+            const session = vscode.debug.activeDebugSession;
+            if (!session) {
+                throw new Error('No active debug session');
+            }
+
+            const frameId = await this.getCurrentFrameId();
+
+            // Normalize to NumPy
+            const normalizeExpression = this.getNormalizeToNumpyExpression(expression, arrayInfo.type);
+
+            // Create sliced expression
+            const slicedExpression = `${normalizeExpression}[${sliceInput}]`;
+
+            this.outputChannel.appendLine(`Evaluating sliced array: ${slicedExpression}`);
+
+            // Get sliced array properties
+            const [slicedShape, slicedDtype, slicedStr] = await Promise.all([
+                this.evaluateExpression(`${slicedExpression}.shape`, frameId),
+                this.evaluateExpression(`${slicedExpression}.dtype`, frameId),
+                this.evaluateExpression(`str(${slicedExpression})`, frameId)
+            ]);
+
+            // Format the sliced array info
+            const slicedInfo: ArrayInfo = {
+                name: `${arrayInfo.name}[${sliceInput}]`,
+                type: 'numpy.ndarray',
+                shape: slicedShape ? this.formatShape(slicedShape, 'numpy.ndarray') : null,
+                dtype: slicedDtype ? this.formatDtype(slicedDtype, 'numpy.ndarray') : null,
+                device: 'cpu',
+                isPinned: false,
+                isAvailable: true
+            };
+
+            // Create and show visualization document
+            await this.showVisualizationDocument(arrayInfo, slicedStr || '', sliceInput, slicedInfo);
+
+        } catch (error) {
+            this.outputChannel.appendLine(`Error visualizing sliced array: ${error}`);
+            vscode.window.showErrorMessage(`Failed to visualize sliced array: ${error}`);
+        }
+    }
+
+    private getNormalizeToNumpyExpression(expression: string, type: string): string {
+        // For JAX arrays, use np.array() to copy to CPU
+        if (type.includes('jax') || type.includes('Array')) {
+            return `__import__('numpy').array(${expression})`;
+        }
+        // For PyTorch tensors, use .cpu().numpy()
+        if (type.includes('torch') || type.includes('Tensor')) {
+            return `${expression}.cpu().numpy()`;
+        }
+        // For NumPy arrays, use as-is
+        return expression;
+    }
+
+    private parseShape(shapeStr: string | null): { dimensions: number[], totalSize: number } {
+        if (!shapeStr) {
+            return { dimensions: [], totalSize: 0 };
+        }
+
+        try {
+            // Parse shape string like "(10, 20, 30)" or "10" or "(10,)"
+            const cleaned = shapeStr.replace(/[()]/g, '').trim();
+            if (cleaned === '') {
+                return { dimensions: [], totalSize: 0 };
+            }
+
+            const dimensions = cleaned.split(',').map(s => {
+                const num = parseInt(s.trim(), 10);
+                return isNaN(num) ? 0 : num;
+            }).filter(n => n > 0);
+
+            const totalSize = dimensions.length > 0 ? dimensions.reduce((a, b) => a * b, 1) : 0;
+
+            return { dimensions, totalSize };
+        } catch (error) {
+            this.outputChannel.appendLine(`Error parsing shape "${shapeStr}": ${error}`);
+            return { dimensions: [], totalSize: 0 };
+        }
+    }
+
+    private async evaluateExpression(expression: string, frameId: number): Promise<string | null> {
+        try {
+            const session = vscode.debug.activeDebugSession;
+            if (!session) {
+                return null;
+            }
+
+            const result = await session.customRequest('evaluate', {
+                expression,
+                context: 'hover',
+                frameId
+            });
+
+            const responseBody = result.body || result;
+            if (!responseBody || !responseBody.result) {
+                return null;
+            }
+
+            return responseBody.result;
+        } catch (error) {
+            this.outputChannel.appendLine(`Error evaluating expression "${expression}": ${error}`);
+            return null;
+        }
+    }
+
+    private async showVisualizationDocument(
+        originalInfo: ArrayInfo,
+        arrayStr: string,
+        sliceIndices: string | null,
+        slicedInfo: ArrayInfo | null
+    ): Promise<void> {
+        // Create a new untitled document to show the visualization
+        const content = this.buildVisualizationContent(originalInfo, arrayStr, sliceIndices, slicedInfo);
+
+        const doc = await vscode.workspace.openTextDocument({
+            content,
+            language: 'python'
+        });
+
+        await vscode.window.showTextDocument(doc, {
+            preview: false,
+            viewColumn: vscode.ViewColumn.Beside
+        });
+    }
+
+    private buildVisualizationContent(
+        originalInfo: ArrayInfo,
+        arrayStr: string,
+        sliceIndices: string | null,
+        slicedInfo: ArrayInfo | null
+    ): string {
+        const lines: string[] = [];
+
+        if (sliceIndices !== null && slicedInfo !== null) {
+            // Sliced array visualization
+            lines.push(`# Array Visualization: ${originalInfo.name}[${sliceIndices}]`);
+            lines.push('');
+            lines.push('# Original Array Properties:');
+            lines.push(`#   Name: ${originalInfo.name}`);
+            lines.push(`#   Type: ${originalInfo.type}`);
+            if (originalInfo.shape) lines.push(`#   Shape: ${originalInfo.shape}`);
+            if (originalInfo.dtype) lines.push(`#   Dtype: ${originalInfo.dtype}`);
+            if (originalInfo.device) lines.push(`#   Device: ${originalInfo.device}`);
+            lines.push('');
+            lines.push(`# Slice: [${sliceIndices}]`);
+            lines.push('');
+            lines.push('# Sliced Array Properties:');
+            if (slicedInfo.shape) lines.push(`#   Shape: ${slicedInfo.shape}`);
+            if (slicedInfo.dtype) lines.push(`#   Dtype: ${slicedInfo.dtype}`);
+            if (slicedInfo.device) lines.push(`#   Device: ${slicedInfo.device}`);
+            lines.push('');
+            lines.push('# Array Data:');
+            lines.push(arrayStr);
+        } else {
+            // Entire array visualization
+            lines.push(`# Array Visualization: ${originalInfo.name}`);
+            lines.push('');
+            lines.push('# Array Properties:');
+            lines.push(`#   Name: ${originalInfo.name}`);
+            lines.push(`#   Type: ${originalInfo.type}`);
+            if (originalInfo.shape) lines.push(`#   Shape: ${originalInfo.shape}`);
+            if (originalInfo.dtype) lines.push(`#   Dtype: ${originalInfo.dtype}`);
+            if (originalInfo.device) lines.push(`#   Device: ${originalInfo.device}`);
+            lines.push('');
+            lines.push('# Array Data:');
+            lines.push(arrayStr);
+        }
+
+        return lines.join('\n');
+    }
+
     private async updateAllArrays(): Promise<void> {
         // Scan scope and refresh view
         await this.scanScopeForArrays();

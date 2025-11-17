@@ -73,6 +73,18 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('arrayInspector.visualizeEntireArray', async (item: ArrayInfoItem) => {
+            await arrayInspectorProvider.visualizeEntireArray(item);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('arrayInspector.visualizeSlicedArray', async (item: ArrayInfoItem) => {
+            await arrayInspectorProvider.visualizeSlicedArray(item);
+        })
+    );
+
     // Listen to mouse hover events
     context.subscriptions.push(
         vscode.window.onDidChangeTextEditorSelection(handleSelectionChange)
