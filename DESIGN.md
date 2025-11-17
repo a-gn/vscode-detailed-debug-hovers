@@ -357,15 +357,18 @@ The extension provides two visualization commands accessible from the context me
    - **JAX arrays**: Uses `np.array(expr)` to copy to CPU/RAM
    - **PyTorch tensors**: Uses `expr.cpu().numpy()` to move to CPU and convert
    - **NumPy arrays**: Uses as-is
-4. Evaluates `str(normalized_array)` via DAP to get the array's string representation
-5. Opens a new untitled document beside the current editor showing:
+4. Evaluates `numpy.array2string(normalized_array, threshold=..., max_line_width=...)` via DAP to get formatted string representation
+5. Decodes Python string escape sequences (\n, \t, etc.) to show actual newlines and formatting
+6. Opens a new untitled document beside the current editor showing:
    - Array name
    - Array properties (type, shape, dtype, device)
-   - Array data (formatted by NumPy's `str()`)
+   - Array data (formatted by `numpy.array2string()`)
 
 **Configuration**:
 - `arrayInspector.visualizationSizeThreshold` (default: 10000): Maximum total array size before confirmation
 - `arrayInspector.visualizationDimensionThreshold` (default: 1000): Maximum size for any single dimension before confirmation
+- `arrayInspector.array2stringThreshold` (default: 1000): Total number of array elements which trigger summarization (NumPy's array2string threshold parameter). Use 0 for no summarization.
+- `arrayInspector.array2stringMaxLineWidth` (default: 120): Maximum number of characters per line in array visualization
 
 **Example Output**:
 ```python
@@ -395,13 +398,14 @@ The extension provides two visualization commands accessible from the context me
    - Accepts any valid NumPy indexing expression
 2. Normalizes the array to NumPy (same as entire array visualization)
 3. Creates the sliced expression: `normalized_array[user_input]`
-4. Evaluates the sliced array's properties (shape, dtype) and string representation
-5. Opens a new untitled document beside the current editor showing:
+4. Evaluates the sliced array's properties (shape, dtype) and string representation using `numpy.array2string()`
+5. Decodes Python string escape sequences to show actual newlines and formatting
+6. Opens a new untitled document beside the current editor showing:
    - Original array name with slice notation
    - Original array properties
    - Slice indices used
    - Sliced array properties
-   - Sliced array data (formatted by NumPy's `str()`)
+   - Sliced array data (formatted by `numpy.array2string()`)
 
 **Example Output**:
 ```python
@@ -434,18 +438,30 @@ The extension provides two visualization commands accessible from the context me
 - `visualizeEntireArray(item)`: Main entry point for entire array visualization
 - `visualizeSlicedArray(item)`: Main entry point for sliced array visualization
 - `getNormalizeToNumpyExpression(expr, type)`: Returns expression to normalize array to NumPy
+- `decodePythonString(pythonStr)`: Decodes Python string literals and escape sequences (\n, \t, \\, etc.)
 - `parseShape(shapeStr)`: Parses shape string to get dimensions and total size
 - `evaluateExpression(expr, frameId)`: Generic method to evaluate expressions via DAP
 - `showVisualizationDocument(info, data, slice, slicedInfo)`: Creates and displays the visualization document
 - `buildVisualizationContent(info, data, slice, slicedInfo)`: Formats the visualization content
 
 **Testing**:
-- 33 comprehensive unit tests in `src/test/visualization.test.ts`
-- Tests cover shape parsing, normalization expressions, content building, thresholds, slicing
+- 41 comprehensive unit tests in `src/test/visualization.test.ts`
+- Tests cover:
+  - Python string decoding (8 tests): newlines, tabs, backslashes, quotes, complex escape sequences
+  - Shape parsing (10 tests)
+  - Normalization expressions (7 tests)
+  - Content building (4 tests)
+  - Size thresholds (5 tests)
+  - Slice expression building (6 tests)
+  - Edge cases (3 tests)
 - All tests use pure functions to verify logic without requiring VSCode environment
 
 **Usage Notes**:
-- Visualization always normalizes to NumPy for consistent `str()` formatting across all array types
+- Visualization always normalizes to NumPy for consistent `array2string()` formatting across all array types
+- Uses `numpy.array2string()` instead of `str()` for better control over:
+  - Summarization threshold (prevent massive output for large arrays)
+  - Line width (ensure readable formatting)
+- Python string escape sequences are properly decoded to show actual newlines, tabs, etc. in the output
 - For large arrays on GPU, copying to CPU/RAM may take time - hence the confirmation dialog
 - The visualization document is opened in a new editor beside the current one for easy comparison
 - The document is read-only (untitled) and uses Python syntax highlighting for better readability
@@ -733,7 +749,8 @@ npm test
 - Attribute item creation
 - Parent section detection and prioritization
 
-**7. Array Visualization Tests** (`src/test/visualization.test.ts` - 33 tests):
+**7. Array Visualization Tests** (`src/test/visualization.test.ts` - 41 tests):
+- decodePythonString function (8 tests)
 - parseShape function (10 tests)
 - getNormalizeToNumpyExpression function (7 tests)
 - buildVisualizationContent function (4 tests)
@@ -741,7 +758,7 @@ npm test
 - Slice expression building (6 tests)
 - Edge cases (3 tests)
 
-**Note**: Total unit tests = 42 + 12 + 35 + 64 + 29 + 31 + 33 = **246 tests**
+**Note**: Total unit tests = 42 + 12 + 35 + 64 + 29 + 31 + 41 = **254 tests**
 
 **7. Integration Tests** (`src/test/suite/arrayInspector.test.ts`):
 Full VSCode environment required:
@@ -866,14 +883,14 @@ git push origin release/v0.2.0
 ## File Locations
 
 - **Extension code**: `src/extension.ts`, `src/arrayInspector.ts`, `src/types.ts`
-- **Unit tests** (246 tests):
+- **Unit tests** (254 tests):
   - `src/test/unit.test.ts` - Core logic (42 tests)
   - `src/test/dap.test.ts` - DAP communication (12 tests)
   - `src/test/edge-cases.test.ts` - Edge cases and error handling (35 tests)
   - `src/test/formatting.test.ts` - Formatting functions (64 tests)
   - `src/test/display-mode.test.ts` - Display mode logic (29 tests)
   - `src/test/array-info-item.test.ts` - ArrayInfoItem class (31 tests)
-  - `src/test/visualization.test.ts` - Array visualization (33 tests)
+  - `src/test/visualization.test.ts` - Array visualization (41 tests)
 - **Integration tests**: `src/test/suite/arrayInspector.test.ts` (requires VSCode)
 - **Test infrastructure**: `src/test/runTest.ts`, `src/test/suite/index.ts`
 - **Configuration**: `package.json`, `.mocharc.json`, `tsconfig.json`
