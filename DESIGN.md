@@ -10,7 +10,7 @@ This document is written and maintained by AI agents. It's meant to help them ge
 
 **Target Arrays**: JAX arrays (`jax.Array`, `jaxlib.xla_extension.ArrayImpl`), NumPy arrays (`numpy.ndarray`), and PyTorch tensors (`torch.Tensor`)
 
-**Current Status**: Fully functional with automatic scope scanning and configurable display modes. The panel shows a highlighted array (currently selected), pinned arrays (user-pinned), and all arrays in scope. Arrays automatically update when changing stack frames or when variables go out of scope. Dtypes are formatted cleanly without wrapper syntax. Users can toggle between three display modes: compact one-line, two-line, or expanded (one property per line).
+**Current Status**: Fully functional with automatic scope scanning, configurable display modes, and array visualization. The panel shows a highlighted array (currently selected), pinned arrays (user-pinned), and all arrays in scope. Arrays automatically update when changing stack frames or when variables go out of scope. Dtypes are formatted cleanly without wrapper syntax. Users can toggle between three display modes: compact one-line, two-line, or expanded (one property per line). Users can visualize entire arrays or sliced arrays in a new document showing array properties and data.
 
 ## Architecture
 
@@ -340,6 +340,116 @@ When enabled, the highlighted array always shows compact information (`name shap
 
 When disabled, the highlighted array follows the global display mode setting.
 
+## Array Visualization
+
+The extension provides two visualization commands accessible from the context menu (right-click) on any array item:
+
+### 1. Visualize Entire Array
+
+**Command**: `arrayInspector.visualizeEntireArray`
+
+**Behavior**:
+1. Checks if the array size exceeds configurable thresholds:
+   - **Total size threshold** (default: 10,000 elements): Calculated as the product of all dimensions
+   - **Dimension threshold** (default: 1,000): Any single dimension exceeding this value
+2. If thresholds are exceeded, shows a confirmation dialog with size information
+3. If user confirms (or thresholds not exceeded), normalizes the array to NumPy:
+   - **JAX arrays**: Uses `np.array(expr)` to copy to CPU/RAM
+   - **PyTorch tensors**: Uses `expr.cpu().numpy()` to move to CPU and convert
+   - **NumPy arrays**: Uses as-is
+4. Evaluates `str(normalized_array)` via DAP to get the array's string representation
+5. Opens a new untitled document beside the current editor showing:
+   - Array name
+   - Array properties (type, shape, dtype, device)
+   - Array data (formatted by NumPy's `str()`)
+
+**Configuration**:
+- `arrayInspector.visualizationSizeThreshold` (default: 10000): Maximum total array size before confirmation
+- `arrayInspector.visualizationDimensionThreshold` (default: 1000): Maximum size for any single dimension before confirmation
+
+**Example Output**:
+```python
+# Array Visualization: arr1
+#
+# Array Properties:
+#   Name: arr1
+#   Type: numpy.ndarray
+#   Shape: (10, 10)
+#   Dtype: float64
+#   Device: cpu
+#
+# Array Data:
+[[0. 0. 0. ... 0. 0. 0.]
+ [0. 0. 0. ... 0. 0. 0.]
+ ...
+ [0. 0. 0. ... 0. 0. 0.]]
+```
+
+### 2. Visualize Sliced Array
+
+**Command**: `arrayInspector.visualizeSlicedArray`
+
+**Behavior**:
+1. Shows an input dialog asking user to enter slice indices
+   - Example inputs: `0:10`, `0:10, :, 5`, `:, 0`, `...`
+   - Accepts any valid NumPy indexing expression
+2. Normalizes the array to NumPy (same as entire array visualization)
+3. Creates the sliced expression: `normalized_array[user_input]`
+4. Evaluates the sliced array's properties (shape, dtype) and string representation
+5. Opens a new untitled document beside the current editor showing:
+   - Original array name with slice notation
+   - Original array properties
+   - Slice indices used
+   - Sliced array properties
+   - Sliced array data (formatted by NumPy's `str()`)
+
+**Example Output**:
+```python
+# Array Visualization: arr1[0:10, :]
+#
+# Original Array Properties:
+#   Name: arr1
+#   Type: numpy.ndarray
+#   Shape: (100, 100)
+#   Dtype: float64
+#   Device: cpu
+#
+# Slice: [0:10, :]
+#
+# Sliced Array Properties:
+#   Shape: (10, 100)
+#   Dtype: float64
+#   Device: cpu
+#
+# Array Data:
+[[0. 0. 0. ... 0. 0. 0.]
+ [0. 0. 0. ... 0. 0. 0.]
+ ...
+ [0. 0. 0. ... 0. 0. 0.]]
+```
+
+### Implementation Details
+
+**Key Methods** (in `src/arrayInspector.ts`):
+- `visualizeEntireArray(item)`: Main entry point for entire array visualization
+- `visualizeSlicedArray(item)`: Main entry point for sliced array visualization
+- `getNormalizeToNumpyExpression(expr, type)`: Returns expression to normalize array to NumPy
+- `parseShape(shapeStr)`: Parses shape string to get dimensions and total size
+- `evaluateExpression(expr, frameId)`: Generic method to evaluate expressions via DAP
+- `showVisualizationDocument(info, data, slice, slicedInfo)`: Creates and displays the visualization document
+- `buildVisualizationContent(info, data, slice, slicedInfo)`: Formats the visualization content
+
+**Testing**:
+- 33 comprehensive unit tests in `src/test/visualization.test.ts`
+- Tests cover shape parsing, normalization expressions, content building, thresholds, slicing
+- All tests use pure functions to verify logic without requiring VSCode environment
+
+**Usage Notes**:
+- Visualization always normalizes to NumPy for consistent `str()` formatting across all array types
+- For large arrays on GPU, copying to CPU/RAM may take time - hence the confirmation dialog
+- The visualization document is opened in a new editor beside the current one for easy comparison
+- The document is read-only (untitled) and uses Python syntax highlighting for better readability
+
 ## Name Compression
 
 **Feature**: Intelligent name compression for long variable names (disabled by default).
@@ -623,7 +733,15 @@ npm test
 - Attribute item creation
 - Parent section detection and prioritization
 
-**Note**: Total unit tests = 42 + 12 + 35 + 64 + 29 + 31 = **213 tests**
+**7. Array Visualization Tests** (`src/test/visualization.test.ts` - 33 tests):
+- parseShape function (10 tests)
+- getNormalizeToNumpyExpression function (7 tests)
+- buildVisualizationContent function (4 tests)
+- Size threshold logic (5 tests)
+- Slice expression building (6 tests)
+- Edge cases (3 tests)
+
+**Note**: Total unit tests = 42 + 12 + 35 + 64 + 29 + 31 + 33 = **246 tests**
 
 **7. Integration Tests** (`src/test/suite/arrayInspector.test.ts`):
 Full VSCode environment required:
@@ -748,13 +866,14 @@ git push origin release/v0.2.0
 ## File Locations
 
 - **Extension code**: `src/extension.ts`, `src/arrayInspector.ts`, `src/types.ts`
-- **Unit tests** (180 tests):
-  - `src/test/unit.test.ts` - Core logic (9 tests)
+- **Unit tests** (246 tests):
+  - `src/test/unit.test.ts` - Core logic (42 tests)
   - `src/test/dap.test.ts` - DAP communication (12 tests)
   - `src/test/edge-cases.test.ts` - Edge cases and error handling (35 tests)
   - `src/test/formatting.test.ts` - Formatting functions (64 tests)
   - `src/test/display-mode.test.ts` - Display mode logic (29 tests)
   - `src/test/array-info-item.test.ts` - ArrayInfoItem class (31 tests)
+  - `src/test/visualization.test.ts` - Array visualization (33 tests)
 - **Integration tests**: `src/test/suite/arrayInspector.test.ts` (requires VSCode)
 - **Test infrastructure**: `src/test/runTest.ts`, `src/test/suite/index.ts`
 - **Configuration**: `package.json`, `.mocharc.json`, `tsconfig.json`
