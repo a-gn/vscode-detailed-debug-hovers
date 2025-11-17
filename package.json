@@ -192,6 +192,18 @@
           "default": 1000,
           "minimum": 10,
           "description": "Maximum size for any single dimension before showing confirmation dialog when visualizing entire array"
+        },
+        "arrayInspector.array2stringThreshold": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 0,
+          "description": "Total number of array elements which trigger summarization in array visualization (numpy.array2string threshold parameter). Use 0 for no summarization."
+        },
+        "arrayInspector.array2stringMaxLineWidth": {
+          "type": "number",
+          "default": 120,
+          "minimum": 20,
+          "description": "Maximum number of characters per line in array visualization (numpy.array2string max_line_width parameter)"
         }
       }
     }
