@@ -862,9 +862,8 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             }
 
             // Normalize to NumPy and get string representation using array2string
-            // Use json.dumps() in Python to encode the string, then JSON.parse() in TypeScript to decode it
             const normalizeExpression = this.getNormalizeToNumpyExpression(expression, arrayInfo.type);
-            const array2stringExpression = `__import__('json').dumps(__import__('numpy').array2string(${normalizeExpression}, threshold=${array2stringThreshold}, max_line_width=${maxLineWidth}))`;
+            const array2stringExpression = `__import__('numpy').array2string(${normalizeExpression}, threshold=${array2stringThreshold}, max_line_width=${maxLineWidth})`;
 
             this.outputChannel.appendLine(`Evaluating array visualization: ${array2stringExpression}`);
 
@@ -879,8 +878,21 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
                 throw new Error('Failed to get array string representation');
             }
 
-            // Decode the JSON-encoded string from Python
-            const arrayStr = JSON.parse(responseBody.result);
+            // DAP returns Python repr with quotes, strip them and decode escape sequences
+            let arrayStr = responseBody.result;
+            // Remove outer quotes if present (single or double)
+            if ((arrayStr.startsWith("'") && arrayStr.endsWith("'")) ||
+                (arrayStr.startsWith('"') && arrayStr.endsWith('"'))) {
+                arrayStr = arrayStr.slice(1, -1);
+            }
+            // Decode escape sequences (handle \\ first with placeholder to avoid conflicts)
+            arrayStr = arrayStr.replace(/\\\\/g, '\x00')  // Placeholder for \\
+                               .replace(/\\n/g, '\n')
+                               .replace(/\\t/g, '\t')
+                               .replace(/\\r/g, '\r')
+                               .replace(/\\'/g, "'")
+                               .replace(/\\"/g, '"')
+                               .replace(/\x00/g, '\\');  // Restore backslashes
 
             // Create and show visualization document
             await this.showVisualizationDocument(arrayInfo, arrayStr, null, null);
@@ -938,11 +950,10 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             const maxLineWidth = config.get<number>('array2stringMaxLineWidth', 120);
 
             // Build array2string expression for sliced array
-            // Use json.dumps() in Python to encode the string
-            const slicedArray2stringExpr = `__import__('json').dumps(__import__('numpy').array2string(${slicedExpression}, threshold=${array2stringThreshold}, max_line_width=${maxLineWidth}))`;
+            const slicedArray2stringExpr = `__import__('numpy').array2string(${slicedExpression}, threshold=${array2stringThreshold}, max_line_width=${maxLineWidth})`;
 
             // Get sliced array properties
-            const [slicedShape, slicedDtype, slicedStrEncoded] = await Promise.all([
+            const [slicedShape, slicedDtype, slicedStrRaw] = await Promise.all([
                 this.evaluateExpression(`${slicedExpression}.shape`, frameId),
                 this.evaluateExpression(`${slicedExpression}.dtype`, frameId),
                 this.evaluateExpression(slicedArray2stringExpr, frameId)
@@ -959,8 +970,23 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
                 isAvailable: true
             };
 
-            // Decode the JSON-encoded string from Python
-            const slicedStr = slicedStrEncoded ? JSON.parse(slicedStrEncoded) : '';
+            // DAP returns Python repr with quotes, strip them and decode escape sequences
+            let slicedStr = slicedStrRaw || '';
+            if (slicedStr) {
+                // Remove outer quotes if present (single or double)
+                if ((slicedStr.startsWith("'") && slicedStr.endsWith("'")) ||
+                    (slicedStr.startsWith('"') && slicedStr.endsWith('"'))) {
+                    slicedStr = slicedStr.slice(1, -1);
+                }
+                // Decode escape sequences (handle \\ first with placeholder to avoid conflicts)
+                slicedStr = slicedStr.replace(/\\\\/g, '\x00')  // Placeholder for \\
+                                   .replace(/\\n/g, '\n')
+                                   .replace(/\\t/g, '\t')
+                                   .replace(/\\r/g, '\r')
+                                   .replace(/\\'/g, "'")
+                                   .replace(/\\"/g, '"')
+                                   .replace(/\x00/g, '\\');  // Restore backslashes
+            }
             await this.showVisualizationDocument(arrayInfo, slicedStr, sliceInput, slicedInfo);
 
         } catch (error) {
