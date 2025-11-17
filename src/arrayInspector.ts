@@ -862,9 +862,9 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             }
 
             // Normalize to NumPy and get string representation using array2string
-            // DAP automatically handles JSON encoding/decoding, so just use array2string directly
+            // Use json.dumps() in Python to encode the string, then JSON.parse() in TypeScript to decode it
             const normalizeExpression = this.getNormalizeToNumpyExpression(expression, arrayInfo.type);
-            const array2stringExpression = `__import__('numpy').array2string(${normalizeExpression}, threshold=${array2stringThreshold}, max_line_width=${maxLineWidth})`;
+            const array2stringExpression = `__import__('json').dumps(__import__('numpy').array2string(${normalizeExpression}, threshold=${array2stringThreshold}, max_line_width=${maxLineWidth}))`;
 
             this.outputChannel.appendLine(`Evaluating array visualization: ${array2stringExpression}`);
 
@@ -879,8 +879,8 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
                 throw new Error('Failed to get array string representation');
             }
 
-            // DAP has already decoded the JSON for us, so use the result directly
-            const arrayStr = responseBody.result;
+            // Decode the JSON-encoded string from Python
+            const arrayStr = JSON.parse(responseBody.result);
 
             // Create and show visualization document
             await this.showVisualizationDocument(arrayInfo, arrayStr, null, null);
@@ -938,11 +938,11 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             const maxLineWidth = config.get<number>('array2stringMaxLineWidth', 120);
 
             // Build array2string expression for sliced array
-            // DAP automatically handles JSON encoding/decoding
-            const slicedArray2stringExpr = `__import__('numpy').array2string(${slicedExpression}, threshold=${array2stringThreshold}, max_line_width=${maxLineWidth})`;
+            // Use json.dumps() in Python to encode the string
+            const slicedArray2stringExpr = `__import__('json').dumps(__import__('numpy').array2string(${slicedExpression}, threshold=${array2stringThreshold}, max_line_width=${maxLineWidth}))`;
 
             // Get sliced array properties
-            const [slicedShape, slicedDtype, slicedStr] = await Promise.all([
+            const [slicedShape, slicedDtype, slicedStrEncoded] = await Promise.all([
                 this.evaluateExpression(`${slicedExpression}.shape`, frameId),
                 this.evaluateExpression(`${slicedExpression}.dtype`, frameId),
                 this.evaluateExpression(slicedArray2stringExpr, frameId)
@@ -959,8 +959,9 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
                 isAvailable: true
             };
 
-            // DAP has already decoded the JSON for us, so use the result directly
-            await this.showVisualizationDocument(arrayInfo, slicedStr || '', sliceInput, slicedInfo);
+            // Decode the JSON-encoded string from Python
+            const slicedStr = slicedStrEncoded ? JSON.parse(slicedStrEncoded) : '';
+            await this.showVisualizationDocument(arrayInfo, slicedStr, sliceInput, slicedInfo);
 
         } catch (error) {
             this.outputChannel.appendLine(`Error visualizing sliced array: ${error}`);
