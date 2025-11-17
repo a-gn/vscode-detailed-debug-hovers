@@ -357,8 +357,8 @@ The extension provides two visualization commands accessible from the context me
    - **JAX arrays**: Uses `np.array(expr)` to copy to CPU/RAM
    - **PyTorch tensors**: Uses `expr.cpu().numpy()` to move to CPU and convert
    - **NumPy arrays**: Uses as-is
-4. Evaluates `numpy.array2string(normalized_array, threshold=..., max_line_width=...)` via DAP to get formatted string representation
-5. Decodes Python string escape sequences (\n, \t, etc.) to show actual newlines and formatting
+4. Evaluates `json.dumps(numpy.array2string(normalized_array, threshold=..., max_line_width=...))` via DAP
+5. Parses the JSON-encoded string using `JSON.parse()` to automatically handle all escape sequences
 6. Opens a new untitled document beside the current editor showing:
    - Array name
    - Array properties (type, shape, dtype, device)
@@ -398,8 +398,8 @@ The extension provides two visualization commands accessible from the context me
    - Accepts any valid NumPy indexing expression
 2. Normalizes the array to NumPy (same as entire array visualization)
 3. Creates the sliced expression: `normalized_array[user_input]`
-4. Evaluates the sliced array's properties (shape, dtype) and string representation using `numpy.array2string()`
-5. Decodes Python string escape sequences to show actual newlines and formatting
+4. Evaluates the sliced array's properties (shape, dtype) and JSON-encoded string representation
+5. Parses the JSON-encoded string using `JSON.parse()` to automatically handle all escape sequences
 6. Opens a new untitled document beside the current editor showing:
    - Original array name with slice notation
    - Original array properties
@@ -438,7 +438,6 @@ The extension provides two visualization commands accessible from the context me
 - `visualizeEntireArray(item)`: Main entry point for entire array visualization
 - `visualizeSlicedArray(item)`: Main entry point for sliced array visualization
 - `getNormalizeToNumpyExpression(expr, type)`: Returns expression to normalize array to NumPy
-- `decodePythonString(pythonStr)`: Decodes Python string literals and escape sequences (\n, \t, \\, etc.)
 - `parseShape(shapeStr)`: Parses shape string to get dimensions and total size
 - `evaluateExpression(expr, frameId)`: Generic method to evaluate expressions via DAP
 - `showVisualizationDocument(info, data, slice, slicedInfo)`: Creates and displays the visualization document
@@ -447,7 +446,7 @@ The extension provides two visualization commands accessible from the context me
 **Testing**:
 - 41 comprehensive unit tests in `src/test/visualization.test.ts`
 - Tests cover:
-  - Python string decoding (8 tests): newlines, tabs, backslashes, quotes, complex escape sequences
+  - JSON encoding/decoding (8 tests): newlines, tabs, backslashes, quotes, unicode, complex escape sequences
   - Shape parsing (10 tests)
   - Normalization expressions (7 tests)
   - Content building (4 tests)
@@ -461,7 +460,10 @@ The extension provides two visualization commands accessible from the context me
 - Uses `numpy.array2string()` instead of `str()` for better control over:
   - Summarization threshold (prevent massive output for large arrays)
   - Line width (ensure readable formatting)
-- Python string escape sequences are properly decoded to show actual newlines, tabs, etc. in the output
+- String encoding/decoding is handled by Python's `json.dumps()` and JavaScript's `JSON.parse()`:
+  - Python side: `json.dumps(numpy.array2string(...))` properly encodes all special characters
+  - TypeScript side: `JSON.parse(result)` automatically decodes newlines, tabs, unicode, etc.
+  - This is much simpler and more robust than manual escape sequence handling
 - For large arrays on GPU, copying to CPU/RAM may take time - hence the confirmation dialog
 - The visualization document is opened in a new editor beside the current one for easy comparison
 - The document is read-only (untitled) and uses Python syntax highlighting for better readability
