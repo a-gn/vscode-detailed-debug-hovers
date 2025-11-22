@@ -1006,6 +1006,86 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             vscode.window.showErrorMessage(`Failed to visualize sliced array: ${error}`);
         }
     }
+    
+    async exportArray(item: ArrayInfoItem): Promise<void> {
+        if (!item.arrayInfo.isAvailable) {
+            vscode.window.showErrorMessage('Array is not available in the current frame');
+            return;
+        }
+    
+        const arrayInfo = item.arrayInfo;
+        const expression = arrayInfo.name;
+    
+        try {
+            // 1. Ask user for export format
+            const exportFormat = await vscode.window.showQuickPick(
+                [
+                    { label: 'NumPy (.npy)', format: 'npy' },
+                    { label: 'NumPy Compressed (.npz)', format: 'npz' },
+                    { label: 'PyTorch (.pt)', format: 'pt' },
+                ],
+                { placeHolder: 'Select export format' }
+            );
+    
+            if (!exportFormat) {
+                return; // User cancelled
+            }
+    
+            // 2. Ask user for output path
+            const saveUri = await vscode.window.showSaveDialog({
+                filters: {
+                    'NumPy': ['npy'],
+                    'NumPy Compressed': ['npz'],
+                    'PyTorch': ['pt']
+                },
+                defaultUri: vscode.Uri.file(`${expression}.${exportFormat.format}`)
+            });
+    
+            if (!saveUri) {
+                return; // User cancelled
+            }
+    
+            const filePath = saveUri.fsPath;
+    
+            const session = vscode.debug.activeDebugSession;
+            if (!session) {
+                throw new Error('No active debug session');
+            }
+    
+            const frameId = await this.getCurrentFrameId();
+    
+            // 3. Construct and execute Python command
+            let saveExpression: string;
+            switch (exportFormat.format) {
+                case 'npy':
+                    saveExpression = `__import__('numpy').save('${filePath}', ${this.getNormalizeToNumpyExpression(expression, arrayInfo.type)})`;
+                    break;
+                case 'npz':
+                    saveExpression = `__import__('numpy').savez_compressed('${filePath}', ${expression}=${this.getNormalizeToNumpyExpression(expression, arrayInfo.type)})`;
+                    break;
+                case 'pt':
+                    saveExpression = `__import__('torch').save(${expression}, '${filePath}')`;
+                    break;
+                default:
+                    throw new Error(`Unsupported export format: ${exportFormat.format}`);
+            }
+    
+            this.outputChannel.appendLine(`Executing export command: ${saveExpression}`);
+    
+            await session.customRequest('evaluate', {
+                expression: saveExpression,
+                context: 'hover',
+                frameId
+            });
+    
+            vscode.window.showInformationMessage(`Successfully exported '${expression}' to '${filePath}'`);
+    
+        } catch (error) {
+            this.outputChannel.appendLine(`Error exporting array: ${error}`);
+            vscode.window.showErrorMessage(`Failed to export array: ${error}`);
+        }
+    }
+    
 
     private getNormalizeToNumpyExpression(expression: string, type: string): string {
         // For JAX arrays, use np.array() to copy to CPU

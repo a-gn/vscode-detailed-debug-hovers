@@ -71,6 +71,10 @@
       {
         "command": "arrayInspector.visualizeSlicedArray",
         "title": "Visualize Sliced Array"
+      },
+      {
+        "command": "arrayInspector.exportArray",
+        "title": "Export Array"
       }
     ],
     "menus": {
@@ -126,6 +130,11 @@
           "command": "arrayInspector.visualizeSlicedArray",
           "when": "view == arrayInspectorView && viewItem =~ /(unpinned|pinned|highlighted)/",
           "group": "visualize@2"
+        },
+        {
+          "command": "arrayInspector.exportArray",
+          "when": "view == arrayInspectorView && viewItem =~ /(unpinned|pinned|highlighted)/",
+          "group": "export@1"
         }
       ]
     },
@@ -196,8 +205,8 @@
         "arrayInspector.array2stringThreshold": {
           "type": "number",
           "default": 1000,
-          "minimum": 0,
-          "description": "Total number of array elements which trigger summarization in array visualization (numpy.array2string threshold parameter). Use 0 for no summarization."
+          "minimum": 1,
+          "description": "Total number of array elements which trigger summarization in array visualization (numpy.array2string threshold parameter). Use 1 to disable summarization."
         },
         "arrayInspector.array2stringMaxLineWidth": {
           "type": "number",

@@ -85,6 +85,12 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('arrayInspector.exportArray', async (item: ArrayInfoItem) => {
+            await arrayInspectorProvider.exportArray(item);
+        })
+    );
+
     // Listen to mouse hover events
     context.subscriptions.push(
         vscode.window.onDidChangeTextEditorSelection(handleSelectionChange)
