@@ -24,6 +24,8 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
     private lastFrameId: number | undefined;
     private displayMode: DisplayMode = DisplayMode.OneLine;
     private treeView: vscode.TreeView<ArrayInfoItem> | undefined;
+    private visualizationEditor: vscode.TextEditor | undefined;
+    private disposables: vscode.Disposable[] = [];
     private sectionCollapsedStates: Map<string, boolean> = new Map();
     private nameCompressionEnabled: boolean = false;
     private maxNameLength: number = 30;
@@ -69,6 +71,16 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
             this.outputChannel.appendLine('Stack item changed');
             this.updateAllArrays();
         });
+
+        // Listen for editor visibility changes to track the visualization editor
+        this.disposables.push(
+            vscode.window.onDidChangeVisibleTextEditors(() => {
+                if (this.visualizationEditor && !vscode.window.visibleTextEditors.includes(this.visualizationEditor)) {
+                    this.outputChannel.appendLine('Visualization editor closed');
+                    this.visualizationEditor = undefined;
+                }
+            })
+        );
     }
 
     setTreeView(treeView: vscode.TreeView<ArrayInfoItem>): void {
@@ -1065,18 +1077,43 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         sliceIndices: string | null,
         slicedInfo: ArrayInfo | null
     ): Promise<void> {
-        // Create a new untitled document to show the visualization
         const content = this.buildVisualizationContent(originalInfo, arrayStr, sliceIndices, slicedInfo);
 
-        const doc = await vscode.workspace.openTextDocument({
-            content,
-            language: 'python'
-        });
+        // Check if the editor is still visible
+        const isVisible = this.visualizationEditor && vscode.window.visibleTextEditors.includes(this.visualizationEditor);
 
-        await vscode.window.showTextDocument(doc, {
-            preview: false,
-            viewColumn: vscode.ViewColumn.Beside
-        });
+        if (this.visualizationEditor && isVisible) {
+            // If the editor exists and is visible, update its content
+            const doc = this.visualizationEditor.document;
+
+            await this.visualizationEditor.edit(editBuilder => {
+                const fullRange = new vscode.Range(
+                    doc.positionAt(0),
+                    doc.positionAt(doc.getText().length)
+                );
+                editBuilder.replace(fullRange, content);
+            });
+
+            // Make sure the editor is revealed
+            await vscode.window.showTextDocument(doc, {
+                viewColumn: this.visualizationEditor.viewColumn,
+                preserveFocus: true,
+                preview: true,
+            });
+
+        } else {
+            // Otherwise, create a new untitled document
+            const doc = await vscode.workspace.openTextDocument({
+                content,
+                language: 'python'
+            });
+
+            this.visualizationEditor = await vscode.window.showTextDocument(doc, {
+                preview: true, // This will reuse the editor if another preview is open
+                viewColumn: vscode.ViewColumn.Beside,
+                preserveFocus: true,
+            });
+        }
     }
 
     private buildVisualizationContent(
@@ -1125,11 +1162,16 @@ export class ArrayInspectorProvider implements vscode.TreeDataProvider<ArrayInfo
         return lines.join('\n');
     }
 
+    dispose() {
+        this.disposables.forEach(d => d.dispose());
+    }
+
     private async updateAllArrays(): Promise<void> {
         // Scan scope and refresh view
         await this.scanScopeForArrays();
         this.refresh();
     }
+
 
     private async scanScopeForArrays(): Promise<void> {
         const session = vscode.debug.activeDebugSession;

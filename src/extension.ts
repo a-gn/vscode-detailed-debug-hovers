@@ -213,4 +213,7 @@ export function deactivate(): void {
     if (hoverTimeout) {
         clearTimeout(hoverTimeout);
     }
+    if (arrayInspectorProvider) {
+        arrayInspectorProvider.dispose();
+    }
 }
