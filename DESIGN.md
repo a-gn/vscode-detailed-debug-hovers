@@ -10,7 +10,7 @@ This document is written and maintained by AI agents. It's meant to help them ge
 
 **Target Arrays**: JAX arrays (`jax.Array`, `jaxlib.xla_extension.ArrayImpl`), NumPy arrays (`numpy.ndarray`), and PyTorch tensors (`torch.Tensor`)
 
-**Current Status**: Fully functional with automatic scope scanning, configurable display modes, and array visualization. The panel shows a highlighted array (currently selected), pinned arrays (user-pinned), and all arrays in scope. Arrays automatically update when changing stack frames or when variables go out of scope. Dtypes are formatted cleanly without wrapper syntax. Users can toggle between three display modes: compact one-line, two-line, or expanded (one property per line). Users can visualize entire arrays or sliced arrays in a new document showing array properties and data.
+**Current Status**: Fully functional with automatic scope scanning, configurable display modes, array visualization, and array export. The panel shows a highlighted array (currently selected), pinned arrays (user-pinned), and all arrays in scope. Arrays automatically update when changing stack frames or when variables go out of scope. Dtypes are formatted cleanly without wrapper syntax. Users can toggle between three display modes: compact one-line, two-line, or expanded (one property per line). Users can visualize entire arrays or sliced arrays in a reusable preview editor showing array properties and data. Users can export arrays to NumPy (.npy, .npz) or PyTorch (.pt) formats.
 
 ## Architecture
 
@@ -96,6 +96,10 @@ Arrays out of scope → Removed from panel automatically
 - `evaluateAttribute(expression, attribute, frameId)`: Evaluate individual attributes like `.shape`
 - `formatDtype(dtype)`: Format dtype cleanly (removes `dtype('int32')` wrapper, extracts torch dtype names)
 - `isSupportedType(type)`: Check if type matches configuration
+- `visualizeEntireArray(item)`: Shows array data in reusable preview editor with size threshold confirmation
+- `visualizeSlicedArray(item)`: Shows sliced array data in reusable preview editor
+- `exportArray(item)`: Exports array to NumPy (.npy, .npz) or PyTorch (.pt) file format
+- `dispose()`: Cleanup method for event listeners
 
 **Data Structures**:
 - `currentHoveredArray`: Currently selected/highlighted array (format varies by mode)
@@ -104,6 +108,8 @@ Arrays out of scope → Removed from panel automatically
 - `lastFrameId`: Track frame changes to detect when scope needs refreshing
 - `displayMode`: Current display mode (OneLine, TwoLine, or Expanded)
 - `showInlineOnHighlighted`: Whether to show compact inline info on highlighted array (default: true)
+- `visualizationEditor`: Reference to the preview editor showing array visualizations (reused across visualizations)
+- `disposables`: Array of disposable event listeners for cleanup
 
 **Critical Dependencies**:
 - `vscode.debug.activeDebugSession`: Must be non-null
@@ -342,7 +348,7 @@ When disabled, the highlighted array follows the global display mode setting.
 
 ## Array Visualization
 
-The extension provides two visualization commands accessible from the context menu (right-click) on any array item:
+The extension provides visualization commands accessible from the context menu (right-click) on any array item. All visualizations reuse the same editor panel to avoid cluttering the workspace with multiple tabs.
 
 ### 1. Visualize Entire Array
 
@@ -387,6 +393,12 @@ The extension provides two visualization commands accessible from the context me
  ...
  [0. 0. 0. ... 0. 0. 0.]]
 ```
+
+**Editor Reuse**:
+- The visualization editor is stored and reused for subsequent visualizations
+- If the editor is still visible, its content is updated in-place
+- If the editor is closed, a new preview editor is created
+- This prevents workspace clutter when inspecting multiple arrays
 
 ### 2. Visualize Sliced Array
 
@@ -437,11 +449,19 @@ The extension provides two visualization commands accessible from the context me
 **Key Methods** (in `src/arrayInspector.ts`):
 - `visualizeEntireArray(item)`: Main entry point for entire array visualization
 - `visualizeSlicedArray(item)`: Main entry point for sliced array visualization
+- `exportArray(item)`: Main entry point for array export functionality
 - `getNormalizeToNumpyExpression(expr, type)`: Returns expression to normalize array to NumPy
 - `parseShape(shapeStr)`: Parses shape string to get dimensions and total size
 - `evaluateExpression(expr, frameId)`: Generic method to evaluate expressions via DAP
-- `showVisualizationDocument(info, data, slice, slicedInfo)`: Creates and displays the visualization document
+- `showVisualizationDocument(info, data, slice, slicedInfo)`: Creates/updates the visualization document (reuses editor if visible)
 - `buildVisualizationContent(info, data, slice, slicedInfo)`: Formats the visualization content
+- `dispose()`: Cleanup method that disposes of event listeners
+
+**Editor Reuse Implementation**:
+- Stores reference to `visualizationEditor` (the preview editor showing array data)
+- Listens to `onDidChangeVisibleTextEditors` to track when the editor is closed
+- When visualizing: checks if editor is still visible, updates content if yes, creates new editor if no
+- Uses `preview: true` flag to instruct VSCode to reuse existing preview editors
 
 **Testing**:
 - 41 comprehensive unit tests in `src/test/visualization.test.ts`
@@ -455,7 +475,42 @@ The extension provides two visualization commands accessible from the context me
   - Edge cases (3 tests)
 - All tests use pure functions to verify logic without requiring VSCode environment
 
+### 3. Export Array
+
+**Command**: `arrayInspector.exportArray`
+
+**Behavior**:
+1. Shows a quick pick menu with export format options:
+   - **NumPy (.npy)**: Save as NumPy binary file using `numpy.save()`
+   - **NumPy Compressed (.npz)**: Save as compressed NumPy archive using `numpy.savez_compressed()`
+   - **PyTorch (.pt)**: Save as PyTorch tensor file using `torch.save()`
+2. Shows a save dialog to choose the output file path (default: `{arrayname}.{format}`)
+3. Normalizes the array to the appropriate format:
+   - For `.npy` and `.npz`: Normalizes to NumPy (same as visualization)
+   - For `.pt`: Uses the original PyTorch tensor (no conversion)
+4. Executes the save command via DAP in the debugger's Python environment
+5. Shows a success message with the file path
+
+**Example Commands Executed**:
+```python
+# NumPy .npy
+numpy.save('/path/to/arr1.npy', np.array(arr1))
+
+# NumPy Compressed .npz
+numpy.savez_compressed('/path/to/arr1.npz', arr1=np.array(arr1))
+
+# PyTorch .pt
+torch.save(tensor1, '/path/to/tensor1.pt')
+```
+
 **Usage Notes**:
+- Export executes in the debugger's Python environment, so the file is saved on the machine being debugged
+- For JAX arrays on GPU, the export automatically copies to CPU/RAM via NumPy normalization
+- For PyTorch tensors exported to `.npy` or `.npz`, they are converted to NumPy arrays on CPU
+- The exported file path is chosen by the user via a native save dialog
+- Export fails gracefully if the array is not available in the current frame
+
+**Visualization Usage Notes**:
 - Visualization always normalizes to NumPy for consistent `array2string()` formatting across all array types
 - Uses `numpy.array2string()` instead of `str()` for better control over:
   - Summarization threshold (prevent massive output for large arrays)
@@ -467,6 +522,7 @@ The extension provides two visualization commands accessible from the context me
 - For large arrays on GPU, copying to CPU/RAM may take time - hence the confirmation dialog
 - The visualization document is opened in a new editor beside the current one for easy comparison
 - The document is read-only (untitled) and uses Python syntax highlighting for better readability
+- All visualizations reuse the same editor panel to prevent workspace clutter
 
 ## Name Compression
 
